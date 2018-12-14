@@ -1,0 +1,6 @@
+*
+!.gitignore
+!FindSDL2.cmake
+!README.txt
+!get-*.sh
+!*.py
