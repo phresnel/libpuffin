@@ -1,15 +1,31 @@
 #include <iostream>
+#include <fstream>
+#include <stdexcept>
 #include "sdlxx/Sdl.hh"
 
+#include "puffin/bmp/read_bmp.hh"
+
 int main() {
-        // image::Canvas canvas(512, 512);
+        try {
+                // image::Canvas canvas(512, 512);
+                puffin::read_bmp("dev-assets/bmp/puffin_4bit.bmp");
+                return 0;
 
-        puffin::sdlxx::Sdl sdl;
-        auto renderer = sdl.createRenderer(512, 512);
+                puffin::sdlxx::Sdl sdl;
+                auto renderer = sdl.createRenderer(512, 512);
 
-        // renderer.copy(canvas);
-        // renderer.present();
+                // dev-assets/bmp/puffin_1bit.bmp
+                // dev-assets/bmp/puffin_4bit.bmp
+                // dev-assets/bmp/puffin_8bit.bmp
+                // dev-assets/bmp/puffin_24bit.bmp
 
-        sdl.pollTilQuit();
-        return 0;
+                // renderer.copy(canvas);
+                // renderer.present();
+
+                sdl.pollTilQuit();
+                return 0;
+        } catch (std::exception &e) {
+                std::cerr << e.what() << std::endl;
+                return 1;
+        }
 }

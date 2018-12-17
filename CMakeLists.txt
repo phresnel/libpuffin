@@ -52,6 +52,7 @@ print_cxx_flags(" after modifications")
 
 # == Linking. ==================================================================
 include_directories(vendor/SDL2-2.0.8)
+include_directories(include/)
 add_executable(
         puffin
 
@@ -70,7 +71,12 @@ add_executable(
         src/sdlxx/Sdl.hh
         src/sdlxx/Renderer.hh
 
-        # fmt/bmp ==============================================================
+        # include/puffin =======================================================
+        include/puffin/exceptions.hh
+
+        # bmp ==================================================================
+        include/puffin/bmp/read_bmp.hh
+        src/bmp/read_bmp.cc
 )
 
 
@@ -93,45 +99,16 @@ endif()
 target_link_libraries(puffin ${SDL2_LIBRARIES})
 target_compile_definitions(puffin PUBLIC SDL_MAIN_HANDLED)
 
-# # == Assets. ===================================================================
-# ## -- dev-assets/ --------------------------------------------------------------
-# set(ASSET_FOLDER dev-assets)
-# file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/${ASSET_FOLDER}/)
-# configure_file("${ASSET_FOLDER}/README.md" ${CMAKE_BINARY_DIR}/${ASSET_FOLDER}/ COPYONLY)
-#
-# ## -- dev-assets/images/ -------------------------------------------------------
-#
-# ### -- dev-assets/images/general -----------------------------------------------
-# set(ASSET_FOLDER dev-assets/images/general)
-# file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/${ASSET_FOLDER}/)
-# configure_file("${ASSET_FOLDER}/1px_border_rgb.bmp" ${CMAKE_BINARY_DIR}/${ASSET_FOLDER}/ COPYONLY)
-# configure_file("${ASSET_FOLDER}/1px_border_rgb.gif" ${CMAKE_BINARY_DIR}/${ASSET_FOLDER}/ COPYONLY)
-# configure_file("${ASSET_FOLDER}/1px_border_rgb.jpg" ${CMAKE_BINARY_DIR}/${ASSET_FOLDER}/ COPYONLY)
-# configure_file("${ASSET_FOLDER}/1px_border_rgb.png" ${CMAKE_BINARY_DIR}/${ASSET_FOLDER}/ COPYONLY)
-# configure_file("${ASSET_FOLDER}/1px_border_rgb.tif" ${CMAKE_BINARY_DIR}/${ASSET_FOLDER}/ COPYONLY)
-# configure_file("${ASSET_FOLDER}/2x2_rgb.png"        ${CMAKE_BINARY_DIR}/${ASSET_FOLDER}/ COPYONLY)
-# configure_file("${ASSET_FOLDER}/2x2_rgb.bmp"        ${CMAKE_BINARY_DIR}/${ASSET_FOLDER}/ COPYONLY)
-# configure_file("${ASSET_FOLDER}/512x512.png"        ${CMAKE_BINARY_DIR}/${ASSET_FOLDER}/ COPYONLY)
-# configure_file("${ASSET_FOLDER}/graygaps.bmp"       ${CMAKE_BINARY_DIR}/${ASSET_FOLDER}/ COPYONLY)
-# configure_file("${ASSET_FOLDER}/abc_256.png"        ${CMAKE_BINARY_DIR}/${ASSET_FOLDER}/ COPYONLY)
-#
-# ### -- dev-assets/images/malformed ---------------------------------------------
-# set(ASSET_FOLDER dev-assets/images/malformed)
-# file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/${ASSET_FOLDER}/)
-# configure_file("${ASSET_FOLDER}/extension_should_be_bmp.png" ${CMAKE_BINARY_DIR}/${ASSET_FOLDER}/ COPYONLY)
-#
-# ### -- dev-assets/images/cubemaps ----------------------------------------------
-# set(ASSET_FOLDER dev-assets/images/cubemaps)
-# file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/${ASSET_FOLDER}/)
-# configure_file("${ASSET_FOLDER}/README.md" ${CMAKE_BINARY_DIR}/${ASSET_FOLDER}/ COPYONLY)
-# configure_file("${ASSET_FOLDER}/skybox_orientation.png" ${CMAKE_BINARY_DIR}/${ASSET_FOLDER}/ COPYONLY)
-# configure_file("${ASSET_FOLDER}/skybox_orientation.bmp" ${CMAKE_BINARY_DIR}/${ASSET_FOLDER}/ COPYONLY)
-#
-# ### -- dev-assets/images/sky ---------------------------------------------------
-# set(ASSET_FOLDER dev-assets/images/sky)
-# file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/${ASSET_FOLDER}/)
-#
-# ### -- dev-assets/images/sky/sphere --------------------------------------------
-# set(ASSET_FOLDER dev-assets/images/sky/sphere)
-# file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/${ASSET_FOLDER}/)
-# configure_file("${ASSET_FOLDER}/0_256.png" ${CMAKE_BINARY_DIR}/${ASSET_FOLDER}/ COPYONLY)
+# == Assets. ===================================================================
+## -- dev-assets/ --------------------------------------------------------------
+set(ASSET_FOLDER dev-assets)
+file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/${ASSET_FOLDER}/)
+configure_file("${ASSET_FOLDER}/puffin.jpg" ${CMAKE_BINARY_DIR}/${ASSET_FOLDER}/ COPYONLY)
+
+## -- dev-assets/bmp/ -------------------------------------------------------
+set(ASSET_FOLDER dev-assets/bmp)
+file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/${ASSET_FOLDER}/)
+configure_file("${ASSET_FOLDER}/puffin_1bit.bmp" ${CMAKE_BINARY_DIR}/${ASSET_FOLDER}/ COPYONLY)
+configure_file("${ASSET_FOLDER}/puffin_4bit.bmp" ${CMAKE_BINARY_DIR}/${ASSET_FOLDER}/ COPYONLY)
+configure_file("${ASSET_FOLDER}/puffin_8bit.bmp" ${CMAKE_BINARY_DIR}/${ASSET_FOLDER}/ COPYONLY)
+configure_file("${ASSET_FOLDER}/puffin_24bit.bmp" ${CMAKE_BINARY_DIR}/${ASSET_FOLDER}/ COPYONLY)
