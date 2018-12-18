@@ -40,6 +40,7 @@ struct Bitmap {
         };
 
         struct InfoHeader {
+                // read from file
                 uint32_t infoHeaderSize;
                 uint32_t width;
                 uint32_t height;
@@ -51,6 +52,9 @@ struct Bitmap {
                 uint32_t yPixelsPerMeter;
                 uint32_t colorsUsed; // Actually used colors (256 for 8 bit, 0=max number of colors according to bitsPerPixel)
                 uint32_t importantColors; // Number of colors required for display. 0=max.
+
+                // computed fields
+                bool isBottomUp;
 
                 InfoHeader(std::ifstream &f);
         };
@@ -77,6 +81,31 @@ struct Bitmap {
                 uint32_t blue = 0;
 
                 ColorMask (InfoHeader const &info, std::ifstream &f);
+        };
+
+        struct RowData1bit {
+                RowData1bit(InfoHeader const &, std::ifstream &);
+                int operator[] (int index) const;
+        private:
+                std::vector<uint32_t> data_;
+
+                enum { pixels_per_chunk = 32 };
+                static uint32_t width_to_chunk_count(uint32_t x) noexcept;
+                static uint32_t x_to_chunk_index(uint32_t x) noexcept;
+                static uint32_t x_to_chunk_offset(uint32_t x) noexcept;
+        };
+
+        struct ImageData1bit {
+                ImageData1bit(Header const &, InfoHeader const &, std::ifstream &);
+
+                int operator() (int x, int y) const;
+
+                bool empty() const;
+                int width() const;
+                int height() const;
+        private:
+                std::vector<RowData1bit> rows_;
+                uint32_t width_;
         };
 };
 
@@ -132,6 +161,12 @@ Bitmap::InfoHeader::InfoHeader(std::ifstream &f) :
         colorsUsed{read4_le(f)},
         importantColors{read4_le(f)}
 {
+        if (height >= 0) {
+                isBottomUp = true;
+        } else {
+                height = -height;
+                isBottomUp = false;
+        }
 }
 
 Bitmap::ColorTable::ColorTable(
@@ -144,14 +179,15 @@ Bitmap::ColorTable::ColorTable(
 
 std::vector<Bitmap::ColorTable::Entry>
 Bitmap::ColorTable::readEntries(InfoHeader const &info, std::ifstream &f) {
-        const auto numColors = info.bitsPerPixel == 1 ? 1 :
+        const auto numColors = info.colorsUsed != 0 ? info.colorsUsed :
+                               info.bitsPerPixel == 1 ? 2 :
                                info.bitsPerPixel == 2 ? 4 :
                                info.bitsPerPixel == 4 ? 16 :
                                info.bitsPerPixel == 8 ? 256 : 0;
 
         std::vector<Entry> ret;
         ret.reserve(numColors);
-        for (int i=0; i<numColors; ++i) {
+        for (unsigned int i=0; i<numColors; ++i) {
                 ret.push_back(Entry{f});
         }
         return ret;
@@ -159,9 +195,9 @@ Bitmap::ColorTable::readEntries(InfoHeader const &info, std::ifstream &f) {
 
 
 Bitmap::ColorTable::ColorTable::Entry::Entry(std::ifstream &f) :
-        red{read1_le(f)},
-        green{read1_le(f)},
         blue{read1_le(f)},
+        green{read1_le(f)},
+        red{read1_le(f)},
         reserved{read1_le(f)}
 {
 
@@ -177,6 +213,102 @@ Bitmap::ColorMask::ColorMask(
         green = read4_le(f);
         blue = read4_le(f);
 }
+
+Bitmap::RowData1bit::RowData1bit(
+        puffin::Bitmap::InfoHeader const &infoHeader,
+        std::ifstream &f
+) {
+        // 4 byte alignment, best explained and visualized by example:
+        //      width = 3, height = 1
+        //      pixels = [011x xxxx][xxxx xxxx][xxxx xxxx][xxxx xxxx]
+        //
+        // Terminology used in the following:
+        //      Pixels = Row_1 Row_2 ... Row_imageHeight
+        //      Row    = Chunk_1 Chunk_2 ... Chunk_numChunks
+        //      Chunk  = Pixel_1 Pixel_2 ... Pixel_pixelsPerChunk Padding
+        // A chunk here aligns to 4 byte (see above).
+
+        const auto numChunks = width_to_chunk_count(infoHeader.width);
+        for (auto chunk=0U; chunk!=numChunks; ++chunk) {
+                uint32_t chunkData;
+                f >> chunkData;
+                data_.push_back(chunkData);
+        }
+}
+
+int Bitmap::RowData1bit::operator[] (int x) const {
+        std::cerr << "given x=" << x << std::endl;
+
+        const uint32_t chunk_index = x_to_chunk_index(x);
+        std::cerr << "  chunk_index=" << chunk_index << std::endl;
+
+        const uint32_t chunk_ofs = x_to_chunk_offset(x);
+        std::cerr << "  chunk_ofs=" << chunk_ofs << std::endl;
+
+        const uint32_t chunk_data = data_[chunk_index];
+        std::cerr << "  chunk_data=" << chunk_data << std::endl;
+
+        const uint32_t value = chunk_data >> chunk_ofs;
+        std::cerr << "  value=" << value << std::endl;
+
+        return static_cast<int>(value);
+}
+
+
+// TODO: the following two functions should be engraved in a template
+uint32_t Bitmap::RowData1bit::width_to_chunk_count(uint32_t x) noexcept {
+        // This adjusted division ensures that any result with a non-zero
+        // fractional part is rounded up:
+        //      width=64  ==>  c = (64 + 31) / 32 = 95 / 32 = 2
+        //      width=65  ==>  c = (65 + 31) / 32 = 96 / 32 = 3
+        return (x + pixels_per_chunk - 1U) / pixels_per_chunk;
+}
+
+uint32_t Bitmap::RowData1bit::x_to_chunk_index(uint32_t x) noexcept {
+        return x / pixels_per_chunk;
+}
+
+uint32_t Bitmap::RowData1bit::x_to_chunk_offset(uint32_t x) noexcept {
+        return x - x_to_chunk_index(x) * pixels_per_chunk;
+}
+
+Bitmap::ImageData1bit::ImageData1bit(
+        puffin::Bitmap::Header const &header,
+        puffin::Bitmap::InfoHeader const &infoHeader,
+        std::ifstream &f
+) {
+        if (infoHeader.bitsPerPixel != 1)
+                return;
+
+        f.seekg(header.dataOffset);
+
+        // TODO: Discuss if it's better to trust infoHeader.ImageSize.
+        // TODO: honor 'infoHeader.isBottomUp'
+        rows_.reserve(infoHeader.height);
+        for (int y=0; y!=infoHeader.height; ++y) {
+                rows_.emplace_back(infoHeader, f);
+        }
+
+        width_ = infoHeader.width;
+}
+
+int Bitmap::ImageData1bit::operator()(int x, int y) const {
+        return rows_[y][x];
+}
+
+bool Bitmap::ImageData1bit::empty() const {
+        return rows_.size() == 0;
+}
+
+int Bitmap::ImageData1bit::width() const {
+        return width_;
+}
+
+int Bitmap::ImageData1bit::height() const {
+        return rows_.size();
+}
+
+
 
 std::ostream& operator<< (std::ostream &os, BitmapCompression bc) {
         switch (bc) {
@@ -208,6 +340,7 @@ std::ostream& operator<< (std::ostream &os, Bitmap::InfoHeader const &v) {
                   << "  infoHeaderSize:" << v.infoHeaderSize << "\n"
                   << "  width:" << v.width << "\n"
                   << "  height:" << v.height << "\n"
+                  << "  isBottomUp:" << v.isBottomUp << "\n"
                   << "  planes:" << v.planes << "\n"
                   << "  bitsPerPixel:" << v.bitsPerPixel << "\n"
                   << "  compression:" << static_cast<BitmapCompression>(v.compression) << "\n"
@@ -244,6 +377,24 @@ std::ostream& operator<< (std::ostream &os, Bitmap::ColorMask const &v) {
                   << "}\n";
 }
 
+std::ostream& operator<< (std::ostream &os, Bitmap::ImageData1bit const &data) {
+        if (data.empty())
+                return os;
+        os << "ImageData1bit{\n";
+        for (int y=0; y!=data.height(); ++y) {
+                os << " [";
+                for (int x=0; x!=data.width(); ++x) {
+                        if (x) {
+                                os << ", ";
+                        }
+                        os << data(x,y);
+                }
+                os << "]\n";
+        }
+        os << "}\n";
+        return os;
+}
+
 void read_bmp(std::string const &filename) {
         std::ifstream f(filename, std::ios::binary);
         if (!f.is_open())
@@ -256,11 +407,13 @@ void read_bmp(std::string const &filename) {
         f.seekg(infoHeader.infoHeaderSize, std::ios_base::cur);
         const Bitmap::ColorTable colorTable(infoHeader, f);
         const Bitmap::ColorMask colorMask(infoHeader, f);
+        const Bitmap::ImageData1bit imageData1bit(header, infoHeader, f);
 
         std::cout << header << "\n----\n";
         std::cout << infoHeader << "\n----\n";
         std::cout << colorTable << "\n----\n";
         std::cout << colorMask << "\n----\n";
+        std::cout << imageData1bit << "\n----\n";
 }
 
 }
