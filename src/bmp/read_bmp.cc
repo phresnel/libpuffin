@@ -92,14 +92,74 @@ struct Bitmap {
         template <int ChunkWidth, int PixelWidth>
         struct RowData ;
 
+
+        //- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+        //
+        // On "pixel-endianness"
+        // ------------------------
+        //
+        // Given a 4-byte chunk of pixel data, the pixel value with the smallest
+        // x-coordinate is left-most when read unaltered from a BMP file.
+        //
+        // This is sub-optimal, as this imposes an additional subtraction
+        // (yes, I was tempted to write "imposes subtraction addition", but
+        // I dislike comment humor - irony is alright, tho.)
+        //
+        // Now for an explanation:
+        //
+        // Given
+        //
+        //    chunk size: 16 bits
+        //    pixel size:  4 bist,
+        //
+        // we get this layout and pixel equations:
+        //
+        //         p0   p1   p2   p3
+        //        [1111 0110 0010 0000]
+        //
+        //        p0 =  (chunk>>12) & 1111b = (chunk>>(16-4 - 0*4)) & 1111b
+        //        p1 =  (chunk>> 8) & 1111b = (chunk>>(16-4 - 1*4)) & 1111b
+        //        p2 =  (chunk>> 4) & 1111b = (chunk>>(16-4 - 2*4)) & 1111b
+        //        p3 =  (chunk>> 0) & 1111b = (chunk>>(16-4 - 3*4)) & 1111b.
+        //
+        // But with "pixel-endianness" flipped, the layout and equations
+        //
+        //         p3   p2   p1   p0
+        //        [0000 0010 0110 1111]
+        //
+        //        p0 =  (chunk>> 0) & 1111b = (chunk>>(0*4)) & 1111b
+        //        p1 =  (chunk>> 4) & 1111b = (chunk>>(1*4)) & 1111b
+        //        p2 =  (chunk>> 8) & 1111b = (chunk>>(2*4)) & 1111b
+        //        p3 =  (chunk>>12) & 1111b = (chunk>>(3*4)) & 1111b
+        //
+        // spare us a confusing shift and a subtraction.
+        //- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
         template <int PixelWidth>
         struct RowData<32, PixelWidth> {
 
                 RowData(InfoHeader const &infoHeader, std::ifstream &f) {
                         const auto numChunks = width_to_chunk_count(infoHeader.width);
                         for (auto i=0U; i!=numChunks; ++i) {
+                                // Too load the chunk unaltered, simply do:
+                                //    const uint32_t chunk = read4_be(f);
+                                //    chunks_.push_back(chunk);
+                                // This would require another (worse) version of
+                                // extract_pixel(), though.
+
                                 const uint32_t chunk = read4_be(f);
-                                chunks_.push_back(chunk);
+
+                                // Now flip the order of pixels in this chunk:
+                                uint32_t flipped = 0U;
+                                for (auto x=0U; x!=pixels_per_chunk; ++x) {
+                                        const auto pixel = extract_pixel(chunk, x);
+                                        //std::cout << x << ":" << std::bitset<pixel_width>(pixel) << std::endl;
+                                        flipped = (flipped<<pixel_width)
+                                                | pixel;
+                                }
+
+                                std::cout << "  " << std::bitset<32>(chunk) << " --> " << std::bitset<32>(flipped) << std::endl;
+                                chunks_.push_back(flipped);
                         }
                 }
 
@@ -109,7 +169,7 @@ struct Bitmap {
                                 chunk_index = x_to_chunk_index(x),
                                 chunk_ofs   = x_to_chunk_offset(x),
                                 chunk = chunks_[chunk_index],
-                                value = extract_pixel(chunk_index, chunk_ofs);
+                                value = extract_pixel(chunk, chunk_ofs);
                         return static_cast<int>(value);
                 }
 
@@ -151,11 +211,17 @@ struct Bitmap {
 
                 static
                 uint32_t extract_pixel(uint32_t chunk, uint32_t ofs) {
-                        // TODO: sh can be done without multiplication
                         const uint32_t
-                                rshift = chunk_width-pixel_width - ofs*pixel_width,
-                                value = chunk >> rshift & pixel_mask;
+                                rshift = ofs * pixel_width,
+                                value = (chunk >> rshift) & pixel_mask;
                         return value;
+
+                        // Here's the code for [pixel_0, pixel_1, ..., pixel_n]:
+                        //
+                        // const uint32_t
+                        //        rshift = chunk_width-pixel_width - ofs*pixel_width,
+                        //        value = (chunk >> rshift) & pixel_mask;
+                        // return value;
                 }
         };
 
@@ -436,10 +502,10 @@ void read_bmp(std::string const &filename) {
         const Bitmap::ImageData<32,4> imageData4bit(header, infoHeader, f);
         const Bitmap::ImageData<32,8> imageData8bit(header, infoHeader, f);
 
-        std::cout << header << "\n----\n";
-        std::cout << infoHeader << "\n----\n";
-        std::cout << colorTable << "\n----\n";
-        std::cout << colorMask << "\n----\n";
+        std::cout << header;
+        std::cout << infoHeader;
+        std::cout << colorTable;
+        std::cout << colorMask;
         std::cout << imageData1bit;
         std::cout << imageData2bit;
         std::cout << imageData4bit;

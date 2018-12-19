@@ -118,3 +118,5 @@ configure_file("${ASSET_FOLDER}/red256_green128_blue64_4x2x24bit.bmp" ${CMAKE_BI
 configure_file("${ASSET_FOLDER}/red256_green128_blue64_4x2x8bit.bmp" ${CMAKE_BINARY_DIR}/${ASSET_FOLDER}/ COPYONLY)
 configure_file("${ASSET_FOLDER}/red256_green128_blue64_4x2x4bit.bmp" ${CMAKE_BINARY_DIR}/${ASSET_FOLDER}/ COPYONLY)
 configure_file("${ASSET_FOLDER}/red256_green128_blue64_4x2x1bit.bmp" ${CMAKE_BINARY_DIR}/${ASSET_FOLDER}/ COPYONLY)
+configure_file("${ASSET_FOLDER}/rg_is_xy_2x2x24bit.bmp" ${CMAKE_BINARY_DIR}/${ASSET_FOLDER}/ COPYONLY)
+configure_file("${ASSET_FOLDER}/rg_is_xy_2x2x8bit.bmp" ${CMAKE_BINARY_DIR}/${ASSET_FOLDER}/ COPYONLY)
