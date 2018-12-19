@@ -5,12 +5,14 @@
 #include <iomanip>
 #include <cstdint>
 #include <vector>
+#include <bitset>
 
 namespace puffin {
 
 //------------------------------------------------------------------------------
 // Based, among others, on these:
 // * https://docs.microsoft.com/en-us/previous-versions/dd183376(v%3Dvs.85)
+// * https://docs.microsoft.com/en-us/windows/desktop/gdi/bitmap-storage
 // * http://www.ece.ualberta.ca/~elliott/ee552/studentAppNotes/2003_w/misc/bmp_file_format/bmp_file_format.htm
 // * https://en.wikipedia.org/wiki/BMP_file_format
 //------------------------------------------------------------------------------
@@ -29,16 +31,20 @@ enum BitmapCompression
 };
 
 struct Bitmap {
+        // Corresponds to BITMAPFILEHEADER on Windows.
+        // See https://docs.microsoft.com/en-us/windows/desktop/api/wingdi/ns-wingdi-tagbitmapfileheader
         struct Header {
                 uint16_t signature;   // 'BM'
                 uint32_t size;        // Size in bytes.
                 uint16_t reserved1;
                 uint16_t reserved2;
-                uint32_t dataOffset;  // Offset from beginning of file to pixel data.
+                uint32_t dataOffset;  // Offset from beginning of header to pixel data.
 
                 Header(std::ifstream &f);
         };
 
+        // Corresponds to BITMAPINFOHEADER on Windows.
+        // See https://docs.microsoft.com/en-us/previous-versions/dd183376(v%3Dvs.85)
         struct InfoHeader {
                 // read from file
                 uint32_t infoHeaderSize;
@@ -95,6 +101,18 @@ struct Bitmap {
                 static uint32_t x_to_chunk_offset(uint32_t x) noexcept;
         };
 
+        struct RowData4bit {
+                RowData4bit(InfoHeader const &, std::ifstream &);
+                int operator[] (int index) const;
+        private:
+                std::vector<uint32_t> data_;
+
+                enum { pixels_per_chunk = 16 };
+                static uint32_t width_to_chunk_count(uint32_t x) noexcept;
+                static uint32_t x_to_chunk_index(uint32_t x) noexcept;
+                static uint32_t x_to_chunk_offset(uint32_t x) noexcept;
+        };
+
         struct ImageData1bit {
                 ImageData1bit(Header const &, InfoHeader const &, std::ifstream &);
 
@@ -105,6 +123,19 @@ struct Bitmap {
                 int height() const;
         private:
                 std::vector<RowData1bit> rows_;
+                uint32_t width_;
+        };
+
+        struct ImageData4bit {
+                ImageData4bit(Header const &, InfoHeader const &, std::ifstream &);
+
+                int operator() (int x, int y) const;
+
+                bool empty() const;
+                int width() const;
+                int height() const;
+        private:
+                std::vector<RowData4bit> rows_;
                 uint32_t width_;
         };
 };
@@ -230,27 +261,17 @@ Bitmap::RowData1bit::RowData1bit(
 
         const auto numChunks = width_to_chunk_count(infoHeader.width);
         for (auto chunk=0U; chunk!=numChunks; ++chunk) {
-                uint32_t chunkData;
-                f >> chunkData;
+                const uint32_t chunkData = read4_be(f);
+                std::cout << "[" << std::bitset<32>(chunkData) << "]\n";
                 data_.push_back(chunkData);
         }
 }
 
 int Bitmap::RowData1bit::operator[] (int x) const {
-        std::cerr << "given x=" << x << std::endl;
-
         const uint32_t chunk_index = x_to_chunk_index(x);
-        std::cerr << "  chunk_index=" << chunk_index << std::endl;
-
         const uint32_t chunk_ofs = x_to_chunk_offset(x);
-        std::cerr << "  chunk_ofs=" << chunk_ofs << std::endl;
-
         const uint32_t chunk_data = data_[chunk_index];
-        std::cerr << "  chunk_data=" << chunk_data << std::endl;
-
-        const uint32_t value = chunk_data >> chunk_ofs;
-        std::cerr << "  value=" << value << std::endl;
-
+        const uint32_t value = (chunk_data >> (31-chunk_ofs)) & 0x1;
         return static_cast<int>(value);
 }
 
@@ -309,6 +330,99 @@ int Bitmap::ImageData1bit::height() const {
 }
 
 
+Bitmap::RowData4bit::RowData4bit(
+        puffin::Bitmap::InfoHeader const &infoHeader,
+        std::ifstream &f
+) {
+        // 4 byte alignment, best explained and visualized by example:
+        //      width = 3, height = 1
+        //      pixels = [011x xxxx][xxxx xxxx][xxxx xxxx][xxxx xxxx]
+        //
+        // Terminology used in the following:
+        //      Pixels = Row_1 Row_2 ... Row_imageHeight
+        //      Row    = Chunk_1 Chunk_2 ... Chunk_numChunks
+        //      Chunk  = Pixel_1 Pixel_2 ... Pixel_pixelsPerChunk Padding
+        // A chunk here aligns to 4 byte (see above).
+
+        const auto numChunks = width_to_chunk_count(infoHeader.width);
+        for (auto chunk=0U; chunk!=numChunks; ++chunk) {
+                const uint32_t chunkData = read4_be(f);
+                std::cout << "[" << std::bitset<32>(chunkData) << "]\n";
+                data_.push_back(chunkData);
+        }
+}
+
+int Bitmap::RowData4bit::operator[] (int x) const {
+        const uint32_t chunk_index = x_to_chunk_index(x);
+        const uint32_t chunk_ofs = x_to_chunk_offset(x);
+        const uint32_t chunk_data = data_[chunk_index];
+        const uint32_t value = (chunk_data >> (28-chunk_ofs*4)) & 0xF;
+
+        /*
+        std::cout << "chunk_idx:" << chunk_index << "  "
+                  << "chunk_ofs:" << chunk_ofs << "  "
+                  << "chunk_data:" << std::bitset<32>(chunk_data) << "  "
+                  << "value:" << std::bitset<4>(value) << "  "
+                  << std::endl;
+        */
+        return static_cast<int>(value);
+}
+
+
+// TODO: the following two functions should be engraved in a template
+uint32_t Bitmap::RowData4bit::width_to_chunk_count(uint32_t x) noexcept {
+        // This adjusted division ensures that any result with a non-zero
+        // fractional part is rounded up:
+        //      width=64  ==>  c = (64 + 31) / 32 = 95 / 32 = 2
+        //      width=65  ==>  c = (65 + 31) / 32 = 96 / 32 = 3
+        return (x + pixels_per_chunk - 1U) / pixels_per_chunk;
+}
+
+uint32_t Bitmap::RowData4bit::x_to_chunk_index(uint32_t x) noexcept {
+        return x / pixels_per_chunk;
+}
+
+uint32_t Bitmap::RowData4bit::x_to_chunk_offset(uint32_t x) noexcept {
+        return x - x_to_chunk_index(x) * pixels_per_chunk;
+}
+
+Bitmap::ImageData4bit::ImageData4bit(
+        puffin::Bitmap::Header const &header,
+        puffin::Bitmap::InfoHeader const &infoHeader,
+        std::ifstream &f
+) {
+        if (infoHeader.bitsPerPixel != 4)
+                return;
+
+        f.seekg(header.dataOffset);
+
+        // TODO: Discuss if it's better to trust infoHeader.ImageSize.
+        // TODO: honor 'infoHeader.isBottomUp'
+        rows_.reserve(infoHeader.height);
+        for (int y=0; y!=infoHeader.height; ++y) {
+                rows_.emplace_back(infoHeader, f);
+        }
+
+        width_ = infoHeader.width;
+}
+
+int Bitmap::ImageData4bit::operator()(int x, int y) const {
+        return rows_[y][x];
+}
+
+bool Bitmap::ImageData4bit::empty() const {
+        return rows_.size() == 0;
+}
+
+int Bitmap::ImageData4bit::width() const {
+        return width_;
+}
+
+int Bitmap::ImageData4bit::height() const {
+        return rows_.size();
+}
+
+
 
 std::ostream& operator<< (std::ostream &os, BitmapCompression bc) {
         switch (bc) {
@@ -327,8 +441,12 @@ std::ostream& operator<< (std::ostream &os, BitmapCompression bc) {
 
 std::ostream& operator<< (std::ostream &os, Bitmap::Header const &v) {
         return os << "Header{\n"
-                  << "  signature:" << std::hex << v.signature << "\n"
-                  << "  size:" << std::dec << v.size << "\n"
+                  << "  signature:" << std::hex << v.signature << std::dec
+                                    << " ('"
+                                    << static_cast<char>(v.signature>>8)
+                                    << static_cast<char>(v.signature & 0xff)
+                                    << "')\n"
+                  << "  size:" << v.size << "\n"
                   << "  reserved1:" << v.reserved1 << "\n"
                   << "  reserved2:" << v.reserved2 << "\n"
                   << "  dataOffset:" << v.dataOffset << "\n"
@@ -395,6 +513,24 @@ std::ostream& operator<< (std::ostream &os, Bitmap::ImageData1bit const &data) {
         return os;
 }
 
+std::ostream& operator<< (std::ostream &os, Bitmap::ImageData4bit const &data) {
+        if (data.empty())
+                return os;
+        os << "ImageData4bit{\n";
+        for (int y=0; y!=data.height(); ++y) {
+                os << " [";
+                for (int x=0; x!=data.width(); ++x) {
+                        if (x) {
+                                os << ", ";
+                        }
+                        os << data(x,y);
+                }
+                os << "]\n";
+        }
+        os << "}\n";
+        return os;
+}
+
 void read_bmp(std::string const &filename) {
         std::ifstream f(filename, std::ios::binary);
         if (!f.is_open())
@@ -408,12 +544,14 @@ void read_bmp(std::string const &filename) {
         const Bitmap::ColorTable colorTable(infoHeader, f);
         const Bitmap::ColorMask colorMask(infoHeader, f);
         const Bitmap::ImageData1bit imageData1bit(header, infoHeader, f);
+        const Bitmap::ImageData4bit imageData4bit(header, infoHeader, f);
 
         std::cout << header << "\n----\n";
         std::cout << infoHeader << "\n----\n";
         std::cout << colorTable << "\n----\n";
         std::cout << colorMask << "\n----\n";
         std::cout << imageData1bit << "\n----\n";
+        std::cout << imageData4bit << "\n----\n";
 }
 
 }
