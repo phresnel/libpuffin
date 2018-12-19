@@ -5,10 +5,13 @@
 
 #include "puffin/bmp/read_bmp.hh"
 
+#include <bitset>
+#include <sstream>
+
 int main() {
         try {
                 // image::Canvas canvas(512, 512);
-                puffin::read_bmp("dev-assets/bmp/red256_green128_blue64_4x2x4bit.bmp");
+                puffin::read_bmp("dev-assets/bmp/red256_green128_blue64_4x2x8bit.bmp");
                 return 0;
 
                 puffin::sdlxx::Sdl sdl;

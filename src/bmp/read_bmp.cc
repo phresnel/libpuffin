@@ -89,54 +89,135 @@ struct Bitmap {
                 ColorMask (InfoHeader const &info, std::ifstream &f);
         };
 
-        struct RowData1bit {
-                RowData1bit(InfoHeader const &, std::ifstream &);
-                int operator[] (int index) const;
-        private:
-                std::vector<uint32_t> data_;
+        template <int ChunkWidth, int PixelWidth>
+        struct RowData ;
 
-                enum { pixels_per_chunk = 32 };
-                static uint32_t width_to_chunk_count(uint32_t x) noexcept;
-                static uint32_t x_to_chunk_index(uint32_t x) noexcept;
-                static uint32_t x_to_chunk_offset(uint32_t x) noexcept;
+        template <int PixelWidth>
+        struct RowData<32, PixelWidth> {
+
+                RowData(InfoHeader const &infoHeader, std::ifstream &f) {
+                        const auto numChunks = width_to_chunk_count(infoHeader.width);
+                        for (auto i=0U; i!=numChunks; ++i) {
+                                const uint32_t chunk = read4_be(f);
+                                chunks_.push_back(chunk);
+                        }
+                }
+
+
+                int operator[] (int x) const {
+                        const uint32_t
+                                chunk_index = x_to_chunk_index(x),
+                                chunk_ofs   = x_to_chunk_offset(x),
+                                chunk = chunks_[chunk_index],
+                                value = extract_pixel(chunk_index, chunk_ofs);
+                        return static_cast<int>(value);
+                }
+
+        private:
+                // -- constants ------------------------------------------------
+                enum {
+                        chunk_width = 32,
+                        pixel_width = PixelWidth,
+                        pixels_per_chunk = chunk_width / pixel_width,
+                        pixel_mask = (1U << PixelWidth) - 1U
+                };
+
+                // -- types ----------------------------------------------------
+                typedef uint32_t chunk_type;
+                typedef std::vector<chunk_type> container_type;
+
+                // -- data -----------------------------------------------------
+                container_type chunks_;
+
+                // -- functions ------------------------------------------------
+                static
+                uint32_t width_to_chunk_count(uint32_t x) noexcept {
+                        // This adjusted division ensures that any result with
+                        // a non-zero fractional part is rounded up:
+                        //      width=64  ==>  c = (64 + 31) / 32 = 95 / 32 = 2
+                        //      width=65  ==>  c = (65 + 31) / 32 = 96 / 32 = 3
+                        return (x + pixels_per_chunk - 1U) / pixels_per_chunk;
+                }
+
+                static
+                uint32_t x_to_chunk_index(uint32_t x) {
+                        return x / pixels_per_chunk;
+                }
+
+                static
+                uint32_t x_to_chunk_offset(uint32_t x) {
+                        return x - x_to_chunk_index(x) * pixels_per_chunk;
+                }
+
+                static
+                uint32_t extract_pixel(uint32_t chunk, uint32_t ofs) {
+                        // TODO: sh can be done without multiplication
+                        const uint32_t
+                                rshift = chunk_width-pixel_width - ofs*pixel_width,
+                                value = chunk >> rshift & pixel_mask;
+                        return value;
+                }
         };
 
-        struct RowData4bit {
-                RowData4bit(InfoHeader const &, std::ifstream &);
-                int operator[] (int index) const;
+        template <int ChunkWidth, int PixelWidth>
+        struct ImageData ;
+
+        template <int PixelWidth>
+        struct ImageData<32, PixelWidth> {
+
+
+                ImageData(
+                        puffin::Bitmap::Header const &header,
+                        puffin::Bitmap::InfoHeader const &infoHeader,
+                        std::ifstream &f
+                ) {
+                        if (infoHeader.bitsPerPixel != PixelWidth)
+                                return;
+
+                        f.seekg(header.dataOffset);
+
+                        // TODO: Discuss if it's better to trust infoHeader.ImageSize.
+                        // TODO: honor 'infoHeader.isBottomUp'
+                        rows_.reserve(infoHeader.height);
+                        for (int y=0; y!=infoHeader.height; ++y) {
+                                rows_.emplace_back(infoHeader, f);
+                        }
+
+                        width_ = infoHeader.width;
+                }
+
+                int operator()(int x, int y) const {
+                        return rows_[y][x];
+                }
+
+                bool empty() const {
+                        return rows_.size() == 0;
+                }
+
+                int width() const {
+                        return width_;
+                }
+
+                int height() const {
+                        return rows_.size();
+                }
+
+
         private:
-                std::vector<uint32_t> data_;
+                // -- constants ------------------------------------------------
+                enum {
+                        chunk_width = 32,
+                        pixel_width = PixelWidth
+                };
 
-                enum { pixels_per_chunk = 16 };
-                static uint32_t width_to_chunk_count(uint32_t x) noexcept;
-                static uint32_t x_to_chunk_index(uint32_t x) noexcept;
-                static uint32_t x_to_chunk_offset(uint32_t x) noexcept;
-        };
+                // -- types ----------------------------------------------------
+                typedef RowData<chunk_width, pixel_width> row_type;
+                typedef std::vector<row_type> container_type;
 
-        struct ImageData1bit {
-                ImageData1bit(Header const &, InfoHeader const &, std::ifstream &);
+                // -- data -----------------------------------------------------
+                container_type rows_;
+                uint32_t width_ = 0;
 
-                int operator() (int x, int y) const;
-
-                bool empty() const;
-                int width() const;
-                int height() const;
-        private:
-                std::vector<RowData1bit> rows_;
-                uint32_t width_;
-        };
-
-        struct ImageData4bit {
-                ImageData4bit(Header const &, InfoHeader const &, std::ifstream &);
-
-                int operator() (int x, int y) const;
-
-                bool empty() const;
-                int width() const;
-                int height() const;
-        private:
-                std::vector<RowData4bit> rows_;
-                uint32_t width_;
         };
 };
 
@@ -245,185 +326,6 @@ Bitmap::ColorMask::ColorMask(
         blue = read4_le(f);
 }
 
-Bitmap::RowData1bit::RowData1bit(
-        puffin::Bitmap::InfoHeader const &infoHeader,
-        std::ifstream &f
-) {
-        // 4 byte alignment, best explained and visualized by example:
-        //      width = 3, height = 1
-        //      pixels = [011x xxxx][xxxx xxxx][xxxx xxxx][xxxx xxxx]
-        //
-        // Terminology used in the following:
-        //      Pixels = Row_1 Row_2 ... Row_imageHeight
-        //      Row    = Chunk_1 Chunk_2 ... Chunk_numChunks
-        //      Chunk  = Pixel_1 Pixel_2 ... Pixel_pixelsPerChunk Padding
-        // A chunk here aligns to 4 byte (see above).
-
-        const auto numChunks = width_to_chunk_count(infoHeader.width);
-        for (auto chunk=0U; chunk!=numChunks; ++chunk) {
-                const uint32_t chunkData = read4_be(f);
-                std::cout << "[" << std::bitset<32>(chunkData) << "]\n";
-                data_.push_back(chunkData);
-        }
-}
-
-int Bitmap::RowData1bit::operator[] (int x) const {
-        const uint32_t chunk_index = x_to_chunk_index(x);
-        const uint32_t chunk_ofs = x_to_chunk_offset(x);
-        const uint32_t chunk_data = data_[chunk_index];
-        const uint32_t value = (chunk_data >> (31-chunk_ofs)) & 0x1;
-        return static_cast<int>(value);
-}
-
-
-// TODO: the following two functions should be engraved in a template
-uint32_t Bitmap::RowData1bit::width_to_chunk_count(uint32_t x) noexcept {
-        // This adjusted division ensures that any result with a non-zero
-        // fractional part is rounded up:
-        //      width=64  ==>  c = (64 + 31) / 32 = 95 / 32 = 2
-        //      width=65  ==>  c = (65 + 31) / 32 = 96 / 32 = 3
-        return (x + pixels_per_chunk - 1U) / pixels_per_chunk;
-}
-
-uint32_t Bitmap::RowData1bit::x_to_chunk_index(uint32_t x) noexcept {
-        return x / pixels_per_chunk;
-}
-
-uint32_t Bitmap::RowData1bit::x_to_chunk_offset(uint32_t x) noexcept {
-        return x - x_to_chunk_index(x) * pixels_per_chunk;
-}
-
-Bitmap::ImageData1bit::ImageData1bit(
-        puffin::Bitmap::Header const &header,
-        puffin::Bitmap::InfoHeader const &infoHeader,
-        std::ifstream &f
-) {
-        if (infoHeader.bitsPerPixel != 1)
-                return;
-
-        f.seekg(header.dataOffset);
-
-        // TODO: Discuss if it's better to trust infoHeader.ImageSize.
-        // TODO: honor 'infoHeader.isBottomUp'
-        rows_.reserve(infoHeader.height);
-        for (int y=0; y!=infoHeader.height; ++y) {
-                rows_.emplace_back(infoHeader, f);
-        }
-
-        width_ = infoHeader.width;
-}
-
-int Bitmap::ImageData1bit::operator()(int x, int y) const {
-        return rows_[y][x];
-}
-
-bool Bitmap::ImageData1bit::empty() const {
-        return rows_.size() == 0;
-}
-
-int Bitmap::ImageData1bit::width() const {
-        return width_;
-}
-
-int Bitmap::ImageData1bit::height() const {
-        return rows_.size();
-}
-
-
-Bitmap::RowData4bit::RowData4bit(
-        puffin::Bitmap::InfoHeader const &infoHeader,
-        std::ifstream &f
-) {
-        // 4 byte alignment, best explained and visualized by example:
-        //      width = 3, height = 1
-        //      pixels = [011x xxxx][xxxx xxxx][xxxx xxxx][xxxx xxxx]
-        //
-        // Terminology used in the following:
-        //      Pixels = Row_1 Row_2 ... Row_imageHeight
-        //      Row    = Chunk_1 Chunk_2 ... Chunk_numChunks
-        //      Chunk  = Pixel_1 Pixel_2 ... Pixel_pixelsPerChunk Padding
-        // A chunk here aligns to 4 byte (see above).
-
-        const auto numChunks = width_to_chunk_count(infoHeader.width);
-        for (auto chunk=0U; chunk!=numChunks; ++chunk) {
-                const uint32_t chunkData = read4_be(f);
-                std::cout << "[" << std::bitset<32>(chunkData) << "]\n";
-                data_.push_back(chunkData);
-        }
-}
-
-int Bitmap::RowData4bit::operator[] (int x) const {
-        const uint32_t chunk_index = x_to_chunk_index(x);
-        const uint32_t chunk_ofs = x_to_chunk_offset(x);
-        const uint32_t chunk_data = data_[chunk_index];
-        const uint32_t value = (chunk_data >> (28-chunk_ofs*4)) & 0xF;
-
-        /*
-        std::cout << "chunk_idx:" << chunk_index << "  "
-                  << "chunk_ofs:" << chunk_ofs << "  "
-                  << "chunk_data:" << std::bitset<32>(chunk_data) << "  "
-                  << "value:" << std::bitset<4>(value) << "  "
-                  << std::endl;
-        */
-        return static_cast<int>(value);
-}
-
-
-// TODO: the following two functions should be engraved in a template
-uint32_t Bitmap::RowData4bit::width_to_chunk_count(uint32_t x) noexcept {
-        // This adjusted division ensures that any result with a non-zero
-        // fractional part is rounded up:
-        //      width=64  ==>  c = (64 + 31) / 32 = 95 / 32 = 2
-        //      width=65  ==>  c = (65 + 31) / 32 = 96 / 32 = 3
-        return (x + pixels_per_chunk - 1U) / pixels_per_chunk;
-}
-
-uint32_t Bitmap::RowData4bit::x_to_chunk_index(uint32_t x) noexcept {
-        return x / pixels_per_chunk;
-}
-
-uint32_t Bitmap::RowData4bit::x_to_chunk_offset(uint32_t x) noexcept {
-        return x - x_to_chunk_index(x) * pixels_per_chunk;
-}
-
-Bitmap::ImageData4bit::ImageData4bit(
-        puffin::Bitmap::Header const &header,
-        puffin::Bitmap::InfoHeader const &infoHeader,
-        std::ifstream &f
-) {
-        if (infoHeader.bitsPerPixel != 4)
-                return;
-
-        f.seekg(header.dataOffset);
-
-        // TODO: Discuss if it's better to trust infoHeader.ImageSize.
-        // TODO: honor 'infoHeader.isBottomUp'
-        rows_.reserve(infoHeader.height);
-        for (int y=0; y!=infoHeader.height; ++y) {
-                rows_.emplace_back(infoHeader, f);
-        }
-
-        width_ = infoHeader.width;
-}
-
-int Bitmap::ImageData4bit::operator()(int x, int y) const {
-        return rows_[y][x];
-}
-
-bool Bitmap::ImageData4bit::empty() const {
-        return rows_.size() == 0;
-}
-
-int Bitmap::ImageData4bit::width() const {
-        return width_;
-}
-
-int Bitmap::ImageData4bit::height() const {
-        return rows_.size();
-}
-
-
-
 std::ostream& operator<< (std::ostream &os, BitmapCompression bc) {
         switch (bc) {
         case BI_RGB: return os << "BI_RGB";
@@ -495,28 +397,14 @@ std::ostream& operator<< (std::ostream &os, Bitmap::ColorMask const &v) {
                   << "}\n";
 }
 
-std::ostream& operator<< (std::ostream &os, Bitmap::ImageData1bit const &data) {
+template <int ChunkWidth, int PixelWidth>
+std::ostream& operator<< (
+        std::ostream &os,
+        Bitmap::ImageData<ChunkWidth, PixelWidth> const &data
+) {
         if (data.empty())
                 return os;
-        os << "ImageData1bit{\n";
-        for (int y=0; y!=data.height(); ++y) {
-                os << " [";
-                for (int x=0; x!=data.width(); ++x) {
-                        if (x) {
-                                os << ", ";
-                        }
-                        os << data(x,y);
-                }
-                os << "]\n";
-        }
-        os << "}\n";
-        return os;
-}
-
-std::ostream& operator<< (std::ostream &os, Bitmap::ImageData4bit const &data) {
-        if (data.empty())
-                return os;
-        os << "ImageData4bit{\n";
+        os << "ImageData<" << ChunkWidth << ", " << PixelWidth << "> {\n";
         for (int y=0; y!=data.height(); ++y) {
                 os << " [";
                 for (int x=0; x!=data.width(); ++x) {
@@ -543,15 +431,19 @@ void read_bmp(std::string const &filename) {
         f.seekg(infoHeader.infoHeaderSize, std::ios_base::cur);
         const Bitmap::ColorTable colorTable(infoHeader, f);
         const Bitmap::ColorMask colorMask(infoHeader, f);
-        const Bitmap::ImageData1bit imageData1bit(header, infoHeader, f);
-        const Bitmap::ImageData4bit imageData4bit(header, infoHeader, f);
+        const Bitmap::ImageData<32,1> imageData1bit(header, infoHeader, f);
+        const Bitmap::ImageData<32,2> imageData2bit(header, infoHeader, f); // non standard
+        const Bitmap::ImageData<32,4> imageData4bit(header, infoHeader, f);
+        const Bitmap::ImageData<32,8> imageData8bit(header, infoHeader, f);
 
         std::cout << header << "\n----\n";
         std::cout << infoHeader << "\n----\n";
         std::cout << colorTable << "\n----\n";
         std::cout << colorMask << "\n----\n";
-        std::cout << imageData1bit << "\n----\n";
-        std::cout << imageData4bit << "\n----\n";
+        std::cout << imageData1bit;
+        std::cout << imageData2bit;
+        std::cout << imageData4bit;
+        std::cout << imageData8bit;
 }
 
 }
