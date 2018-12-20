@@ -3,7 +3,6 @@
 
 #include "coords.hh"
 #include "Rgb.hh"
-// #include "support/contract.hh"
 #include <vector>
 
 namespace puffin { namespace image {

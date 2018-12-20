@@ -1,9 +1,9 @@
+#include "puffin/impl/sdl_util.hh"
+#include "puffin/bmp.hh"
+
 #include <iostream>
 #include <fstream>
 #include <stdexcept>
-#include "sdlxx/Sdl.hh"
-
-#include "puffin/bmp/read_bmp.hh"
 
 #include <bitset>
 #include <sstream>
@@ -15,7 +15,7 @@ int main() {
                 puffin::read_bmp("dev-assets/bmp/rg_is_xy_2x2x8bit.bmp");
                 return 0;
 
-                puffin::sdlxx::Sdl sdl;
+                puffin::impl::Sdl sdl;
                 auto renderer = sdl.createRenderer(512, 512);
 
                 // dev-assets/bmp/puffin_1bit.bmp

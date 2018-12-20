@@ -3,7 +3,11 @@ set(CMAKE_CXX_STANDARD 14)
 project(OneImageLib)
 
 
-# == Compiler settings. ================================================================================================
+
+# ==============================================================================
+# ==   Compiler Configuration.   ===============================================
+# ==============================================================================
+
 # Compiler detection as per: https://stackoverflow.com/a/10055571/76722
 macro(print_cxx_flags msg)
         macro(print_var_with_name v)
@@ -36,7 +40,10 @@ if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
         replace_or_add(CMAKE_CXX_FLAGS_RELWITHDEBINFO "/O[x12]" "/O2")
         # replace_or_add(CMAKE_CXX_FLAGS_RELEASE "/arch:[0-9a-zA-Z-]+" /arch:SSE2)
         # replace_or_add(CMAKE_CXX_FLAGS_RELWITHDEBINFO "/arch:[0-9a-zA-Z-]+" /arch:SSE2)
-        add_compile_definitions(_CRT_SECURE_NO_WARNINGS) # because it complained about localtime() (::localtime_s() is not guaranteed to exist in C++)
+
+        # In case the compiler complains about not using secure variants
+        # (E.g. ::localtime_s() is not guaranteed to exist in C++):
+        add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
 elseif("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
         message(STATUS "Compiler is GNU.")
         # see also: https://gcc.gnu.org/onlinedocs/gcc/Optimize-Options.html
@@ -50,38 +57,42 @@ print_cxx_flags(" after modifications")
 
 
 
-# == Linking. ==================================================================
+# ==============================================================================
+# ==   Linking and Targets.   ==================================================
+# ==============================================================================
 include_directories(vendor/SDL2-2.0.8)
 include_directories(include/)
 add_executable(
         puffin
 
+        # src ==================================================================
+        src/bmp.cc
         src/main.cc
 
-        # image/ ===============================================================
-        src/image/coords.hh
-        src/image/Image.hh
-        src/image/ImageFilter.hh
-        #src/image/io.cc
-        #src/image/io.detail.cc
-        #src/image/io.hh
-        src/image/Rgb.hh
-
-        # sdlxx/ ===============================================================
-        src/sdlxx/Sdl.hh
-        src/sdlxx/Renderer.hh
+        # src/impl =============================================================
+        src/impl/bmp_util.cc
 
         # include/puffin =======================================================
+        include/puffin/bmp.hh
         include/puffin/exceptions.hh
 
-        # bmp ==================================================================
-        include/puffin/bmp/read_bmp.hh
-        src/bmp/read_bmp.cc
+        # include/puffin/impl ==================================================
+        include/puffin/impl/bmp_util.hh
+        include/puffin/impl/io_util.hh
+        include/puffin/impl/sdl_util.hh
+
+        # include/puffin/impl/image ============================================
+        include/puffin/impl/image/coords.hh
+        include/puffin/impl/image/Image.hh
+        include/puffin/impl/image/ImageFilter.hh
+        include/puffin/impl/image/Rgb.hh
 )
 
 
 
-# == Libraries. ================================================================
+# ==============================================================================
+# ==   Libraries.   ============================================================
+# ==============================================================================
 
 ## -- SDL 2 --------------------------------------------------------------------
 if(MSVC)
@@ -99,7 +110,12 @@ endif()
 target_link_libraries(puffin ${SDL2_LIBRARIES})
 target_compile_definitions(puffin PUBLIC SDL_MAIN_HANDLED)
 
-# == Assets. ===================================================================
+
+
+# ==============================================================================
+# ==   Assets.   ===============================================================
+# ==============================================================================
+
 ## -- dev-assets/ --------------------------------------------------------------
 set(ASSET_FOLDER dev-assets)
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/${ASSET_FOLDER}/)

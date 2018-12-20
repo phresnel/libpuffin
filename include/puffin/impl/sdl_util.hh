@@ -1,22 +1,25 @@
-#ifndef ONEIRIC_RENDERER_HH_20181008
-#define ONEIRIC_RENDERER_HH_20181008
+#ifndef SDL_UTIL_HH_20181220
+#define SDL_UTIL_HH_20181220
 
-#include <SDL2/SDL.h>
+#include "SDL2/SDL.h"
 #include <memory>
 #include <functional>
 #include <algorithm>
+#include <stdexcept>
 
-namespace puffin { namespace sdlxx {
+namespace puffin { namespace impl {
 
 class Sdl;
 
-class Renderer final {
+class SdlRenderer final {
 public:
-        Renderer(Renderer const&) = delete;
-        Renderer& operator= (Renderer const&) = delete;
+        SdlRenderer() = delete;
 
-        Renderer (Renderer &&) = default;
-        Renderer& operator= (Renderer &&) = default;
+        SdlRenderer(SdlRenderer const&) = delete;
+        SdlRenderer& operator= (SdlRenderer const&) = delete;
+
+        SdlRenderer (SdlRenderer &&) = default;
+        SdlRenderer& operator= (SdlRenderer &&) = default;
 
         int width() const { return width_; }
         int height() const { return height_; }
@@ -90,7 +93,7 @@ public:
         }
 
 private:
-        Renderer(int width, int height) :
+        SdlRenderer(int width, int height) :
                 width_(width),
                 height_(height) {
                 SDL_Renderer *renderer;
@@ -136,6 +139,54 @@ private:
         std::unique_ptr<SDL_Window, WindowDeleter> window_;
 };
 
+
+class Sdl final {
+public:
+        Sdl(Sdl const &) = delete;
+
+        Sdl &operator=(Sdl const &) = delete;
+
+        Sdl() {
+                if (0 != SDL_Init(0))
+                        throw std::runtime_error("Could not init SDL.");
+        }
+
+        SdlRenderer createRenderer(int width, int height) const {
+                return {width, height};
+        }
+
+        ~Sdl() {
+                SDL_Quit();
+        }
+
+        void pollTilQuit() {
+                while (!quitRequested()) {
+                        poll();
+                }
+        }
+
+        void poll() {
+                SDL_Event event;
+                while(SDL_PollEvent(&event)) {
+                        quitRequested_ = quitRequested_ || shouldQuit(event);
+                }
+        }
+
+        bool quitRequested() const {
+                return quitRequested_;
+        }
+
+private:
+        bool shouldQuit(SDL_Event const &event) const {
+                const bool otherQuit = event.type == SDL_QUIT;
+                const bool escapeKeyUp = (event.type == SDL_KEYUP) &&
+                                         (event.key.keysym.sym == SDLK_ESCAPE);
+                return escapeKeyUp || otherQuit;
+        }
+
+        bool quitRequested_ = false;
+};
+
 } }
 
-#endif //ONEIRIC_RENDERER_HH_20181008
+#endif //SDL_UTIL_HH_20181220
