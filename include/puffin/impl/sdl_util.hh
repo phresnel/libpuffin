@@ -6,6 +6,7 @@
 #include <functional>
 #include <algorithm>
 #include <stdexcept>
+#include "contract.hh"
 
 namespace puffin { namespace impl {
 
@@ -109,23 +110,20 @@ private:
         }
 
         void ensureBoundsContract(int x, int y) const {
-                /*
-                contract::positive(x);
-                contract::less_than(x, width_);
-                contract::positive(y);
-                contract::less_than(y, height_);
-                */
+                namespace cont = impl;
+                cont::positive(x);
+                cont::less_than(x, width_);
+                cont::positive(y);
+                cont::less_than(y, height_);
         }
 
         void ensureRgbContract(int r, int g, int b) const {
-                /*
-                namespace cont = oneiric::support::contract;
+                namespace cont = impl;
                 cont::less_or_equal(r, 255);
                 cont::positive(g);
                 cont::less_or_equal(g, 255);
                 cont::positive(b);
                 cont::less_or_equal(b, 255);
-                */
         }
 
         friend class Sdl;

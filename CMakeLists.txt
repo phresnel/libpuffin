@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.5)
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 98)
 project(OneImageLib)
 
 
@@ -74,18 +74,18 @@ add_executable(
 
         # include/puffin =======================================================
         include/puffin/bmp.hh
+        include/puffin/canvas.hh
+        include/puffin/color.hh
+        include/puffin/coords.hh
         include/puffin/exceptions.hh
 
         # include/puffin/impl ==================================================
         include/puffin/impl/bmp_util.hh
+        include/puffin/impl/compiler.hh
+        include/puffin/impl/contract.hh
         include/puffin/impl/io_util.hh
         include/puffin/impl/sdl_util.hh
-
-        # include/puffin/impl/image ============================================
-        include/puffin/impl/image/coords.hh
-        include/puffin/impl/image/Image.hh
-        include/puffin/impl/image/ImageFilter.hh
-        include/puffin/impl/image/Rgb.hh
+        include/puffin/impl/type_traits.hh
 )
 
 
