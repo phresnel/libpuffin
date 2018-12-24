@@ -8,8 +8,6 @@
 
 namespace puffin {
 
-class ColorSpace {};
-
 template <typename T>
 class base_image final {
 public:
@@ -588,7 +586,7 @@ private:
         CoordWrapper wrap_{Wrapping::Wrap};
 };
 
-typedef basic_rgba<uint16_t, uint16_t, uint16_t, uint16_t> Rgba64;
-typedef base_image<Rgba64> Image64;
+typedef base_image<Color64> Image64;
+typedef base_image<Color32> Image32;
 }
 #endif //CANVAS_HH_INCLUDED_20181221

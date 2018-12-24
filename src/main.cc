@@ -26,6 +26,7 @@ int main() {
         a.values(44,55,66,77);
         std::cout << std::dec << a;
          */
+        puffin::Bitmap32 *p = puffin::read_bmp32("dev-assets/bmp/rg_is_xy_2x2x8bit.bmp");
 
         try {
                 // image::Canvas canvas(512, 512);

@@ -4,8 +4,11 @@
 #include "impl/type_traits.hh"
 #include "impl/compiler.hh"
 #include <limits>
+#include <cstdint>
 
 namespace puffin {
+
+class ColorSpace {}; // TODO: Color space support
 
 // __ rgba_scalar_traits<T> ____________________________________________________
 template <typename ScalarT, typename=void>
@@ -148,10 +151,10 @@ struct basic_rgba
         // basic_rgba() -> {default, default, default, default}
         // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
         basic_rgba() :
-                _r(red_traits_type::color_default()),
-                _g(green_traits_type::color_default()),
-                _b(blue_traits_type::color_default()),
-                a(alpha_traits_type::alpha_default())
+                r_(red_traits_type::color_default()),
+                g_(green_traits_type::color_default()),
+                b_(blue_traits_type::color_default()),
+                a_(alpha_traits_type::alpha_default())
         {}
 
         // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -161,10 +164,18 @@ struct basic_rgba
         //   - only enabled if r, g and b have same type
         // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
         template< typename =
-            typename impl::enable_if<basic_rgba::rgb_have_common_type>::type >
+        typename impl::enable_if<basic_rgba::rgb_have_common_type>::type >
         explicit basic_rgba(
+                red_type   v
+        ) :
+                r_(v), g_(v), b_(v), a_(alpha_traits_type::alpha_default())
+        {}
+
+        template< typename =
+            typename impl::enable_if<basic_rgba::rgb_have_common_type>::type >
+        basic_rgba(
                 red_type   v,
-                alpha_type a = alpha_traits_type::alpha_default()
+                alpha_type a
         ) :
                 r_(v), g_(v), b_(v), a_(a)
         {}
@@ -175,8 +186,16 @@ struct basic_rgba
         basic_rgba(
                 red_type   r,
                 green_type g,
+                blue_type  b
+        ) :
+                r_(r), g_(g), b_(b), a_(alpha_traits_type::alpha_default())
+        {}
+
+        basic_rgba(
+                red_type   r,
+                green_type g,
                 blue_type  b,
-                alpha_type a = alpha_traits_type::alpha_default()
+                alpha_type a
         ) :
                 r_(r), g_(g), b_(b), a_(a)
         {}
@@ -199,6 +218,9 @@ private:
         blue_type  b_;
         alpha_type a_;
 };
+
+typedef basic_rgba<uint16_t, uint16_t, uint16_t, uint16_t> Color64;
+typedef basic_rgba<uint8_t, uint8_t, uint8_t, uint8_t> Color32;
 
 }
 

@@ -32,7 +32,9 @@ struct BitmapHeader {
         uint16_t reserved2;
         uint32_t dataOffset;  // Offset from beginning of header to pixel data.
 
+        BitmapHeader();
         BitmapHeader(std::istream &f);
+        void reset(std::istream &f);
 };
 
 
@@ -55,7 +57,9 @@ struct BitmapInfoHeader {
         // computed fields
         bool isBottomUp;
 
+        BitmapInfoHeader();
         BitmapInfoHeader(/*BitmapHeader const &header, */std::istream &f);
+        void reset(std::istream &f);
 };
 
 
@@ -70,7 +74,13 @@ struct BitmapColorTable {
         };
         std::vector<Entry> entries;
 
+        BitmapColorTable();
         BitmapColorTable (BitmapInfoHeader const &info, std::istream &f);
+        void reset(BitmapInfoHeader const &info, std::istream &f);
+
+        Entry operator[] (int i) const {
+                return entries[i];
+        }
 private:
         static std::vector<Entry> readEntries(
                 BitmapInfoHeader const &info,
@@ -80,11 +90,13 @@ private:
 
 
 struct BitmapColorMask {
-        uint32_t red = 0;
-        uint32_t green = 0;
-        uint32_t blue = 0;
+        uint32_t red;
+        uint32_t green;
+        uint32_t blue;
 
+        BitmapColorMask();
         BitmapColorMask (BitmapInfoHeader const &info, std::istream &f);
+        void reset (BitmapInfoHeader const &info, std::istream &f);
 };
 
 
@@ -148,11 +160,22 @@ struct BitmapRowData<32, PixelWidth> {
         typedef std::vector<chunk_type> container_type;
 
         // -- members --------------------------------------------------
+        BitmapRowData() { }
+
         BitmapRowData(
                 BitmapInfoHeader const &infoHeader,
                 std::istream &f
         ) {
+                reset(infoHeader, f);
+        }
+
+        void reset(
+                BitmapInfoHeader const &infoHeader,
+                std::istream &f
+        ) {
                 const auto numChunks = width_to_chunk_count(infoHeader.width);
+                chunks_.clear();
+                chunks_.reserve(numChunks);
                 for (auto i=0U; i!=numChunks; ++i) {
                         // Too load the chunk unaltered, simply do:
                         //    const uint32_t chunk = read_uint32_be(f);
@@ -240,7 +263,17 @@ struct BitmapImageData<32, PixelWidth> {
         typedef typename container_type::size_type size_type;
 
         // -- members --------------------------------------------------
+        BitmapImageData() : width_(0) {}
+
         BitmapImageData(
+                BitmapHeader const &header,
+                BitmapInfoHeader const &infoHeader,
+                std::istream &f
+        ) {
+                reset(header, infoHeader, f);
+        }
+
+        void reset(
                 BitmapHeader const &header,
                 BitmapInfoHeader const &infoHeader,
                 std::istream &f
@@ -252,6 +285,7 @@ struct BitmapImageData<32, PixelWidth> {
 
                 // TODO: Discuss if it's better to trust infoHeader.ImageSize.
                 // TODO: honor 'infoHeader.isBottomUp'
+                rows_.clear();
                 rows_.reserve(infoHeader.height);
                 for (int y=0; y!=infoHeader.height; ++y) {
                         rows_.emplace_back(infoHeader, f);
@@ -278,7 +312,7 @@ struct BitmapImageData<32, PixelWidth> {
 
 private:
         container_type rows_;
-        size_type width_ = 0;
+        size_type width_ ;
 
 };
 
