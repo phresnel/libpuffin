@@ -74,12 +74,14 @@ add_executable(
 
         # include/puffin =======================================================
         include/puffin/bmp.hh
-        include/puffin/canvas.hh
         include/puffin/color.hh
         include/puffin/coords.hh
         include/puffin/exceptions.hh
+        include/puffin/image.hh
 
         # include/puffin/impl ==================================================
+        include/puffin/impl/algorithm.hh
+        include/puffin/impl/bitfield.hh
         include/puffin/impl/bmp_util.hh
         include/puffin/impl/compiler.hh
         include/puffin/impl/contract.hh

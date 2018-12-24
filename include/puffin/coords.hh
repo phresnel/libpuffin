@@ -1,9 +1,9 @@
 #ifndef COORD_HH_INCLUDED_20181211
 #define COORD_HH_INCLUDED_20181211
 
-#include "math/algo.hh"
+#include "impl/algorithm.hh"
 
-namespace puffin { namespace image {
+namespace puffin {
 
 // -- Coords -------------------------------------------------------------------
 struct Coords {
@@ -35,7 +35,7 @@ constexpr int height(Screen const &r) noexcept { return r.height; }
 class Rect {
 public:
         constexpr Rect(Coords const &a, Coords const &b) noexcept
-        : min_{image::min(a,b)}, max_{image::max(a,b)}
+        : min_{puffin::min(a,b)}, max_{puffin::max(a,b)}
         {}
 
         constexpr int left() const noexcept { return min_.x; }
@@ -59,12 +59,12 @@ constexpr int height(Rect const &r) noexcept { return r.height(); }
 // wrap
 template <typename ScreenT>
 constexpr int wrap_x(ScreenT const &screen, int x) noexcept {
-        using puffin::math::wrap;
+        using puffin::impl::wrap;
         return wrap(x, width(screen)-1);
 }
 template <typename ScreenT>
 constexpr int wrap_y(ScreenT const &screen, int y) noexcept {
-        using puffin::math::wrap;
+        using puffin::impl;
         return wrap(y, height(screen)-1);
 }
 template <typename ScreenT>
@@ -75,12 +75,12 @@ constexpr Coords wrap(ScreenT const &screen, Coords const &coords) noexcept {
 // clamp
 template <typename ScreenT>
 constexpr int clamp_x(ScreenT const &screen, int x) noexcept {
-        using puffin::math::clamp;
+        using puffin::impl::clamp;
         return clamp(x, width(screen)-1);
 }
 template <typename ScreenT>
 constexpr int clamp_y(ScreenT const &screen, int y) noexcept {
-        using puffin::math::clamp;
+        using puffin::impl::clamp;
         return clamp(y, height(screen)-1);
 }
 template <typename ScreenT>
@@ -91,12 +91,12 @@ constexpr Coords clamp(ScreenT const &screen, Coords const &coords) noexcept {
 // mirror
 template <typename ScreenT>
 constexpr int mirror_x(ScreenT const &screen, int x) noexcept {
-        using puffin::math::mirror;
+        using puffin::impl::mirror;
         return mirror(x, width(screen)-1);
 }
 template <typename ScreenT>
 constexpr int mirror_y(ScreenT const &screen, int y) noexcept {
-        using puffin::math::mirror;
+        using puffin::impl::mirror;
         return mirror(y, height(screen)-1);
 }
 template <typename ScreenT>
@@ -160,6 +160,6 @@ struct CoordWrapper {
         }
 };
 
-} }
+}
 
 #endif //COORD_HH_INCLUDED_20181211

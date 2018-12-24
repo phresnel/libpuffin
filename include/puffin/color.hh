@@ -111,41 +111,35 @@ struct basic_rgba
         //   - false, otherwise.
         //
 
-        // -- fields -----------------------------------------------------------
-        red_type   r;
-        green_type g;
-        blue_type  b;
-        alpha_type a;
-
         // -- ctor/dtor/copy/move ----------------------------------------------
         basic_rgba(basic_rgba const &v) :
-                r(v.r),
-                g(v.g),
-                b(v.b),
-                b(v.b)
+                r_(v.r),
+                g_(v.g),
+                b_(v.b),
+                b_(v.b)
         {}
 
         basic_rgba& operator= (basic_rgba const &v) {
-                r = v.r;
-                g = v.g;
-                b = v.b;
-                a = v.a;
+                _r = v.r;
+                _g = v.g;
+                _b = v.b;
+                _a = v.a;
                 return *this;
         }
 
 #if PUFFIN_HAS_MOVE_SEMANTICS
         basic_rgba(basic_rgba &&v) :
-                r(std::move(v.r)),
-                g(std::move(v.g)),
-                b(std::move(v.b)),
-                b(std::move(v.b))
+                _r(std::move(v.r)),
+                _g(std::move(v.g)),
+                _b(std::move(v.b)),
+                _b(std::move(v.b))
         {}
 
         basic_rgba& operator= (basic_rgba &&v) {
-                r = std::move(v.r);
-                g = std::move(v.g);
-                b = std::move(v.b);
-                a = std::move(v.a);
+                _r = std::move(v.r);
+                _g = std::move(v.g);
+                _b = std::move(v.b);
+                _a = std::move(v.a);
                 return *this;
         }
 #endif
@@ -154,9 +148,9 @@ struct basic_rgba
         // basic_rgba() -> {default, default, default, default}
         // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
         basic_rgba() :
-                r(red_traits_type::color_default()),
-                g(green_traits_type::color_default()),
-                b(blue_traits_type::color_default()),
+                _r(red_traits_type::color_default()),
+                _g(green_traits_type::color_default()),
+                _b(blue_traits_type::color_default()),
                 a(alpha_traits_type::alpha_default())
         {}
 
@@ -172,7 +166,7 @@ struct basic_rgba
                 red_type   v,
                 alpha_type a = alpha_traits_type::alpha_default()
         ) :
-                r(v), g(v), b(v), a(a)
+                r_(v), g_(v), b_(v), a_(a)
         {}
 
         // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -184,8 +178,26 @@ struct basic_rgba
                 blue_type  b,
                 alpha_type a = alpha_traits_type::alpha_default()
         ) :
-                r(r), g(g), b(b), a(a)
+                r_(r), g_(g), b_(b), a_(a)
         {}
+
+        // -- accessors --------------------------------------------------------
+        red_type   r()  const { return r_; }
+        green_type g()  const { return g_; }
+        blue_type  b()  const { return b_; }
+        alpha_type a()  const { return a_; }
+
+        void r(red_type   const &v)  { r_ = v; }
+        void g(green_type const &v)  { g_ = v; }
+        void b(blue_type  const &v)  { b_ = v; }
+        void a(alpha_type const &v)  { a_ = v; }
+
+private:
+        // -- fields -----------------------------------------------------------
+        red_type   r_;
+        green_type g_;
+        blue_type  b_;
+        alpha_type a_;
 };
 
 }

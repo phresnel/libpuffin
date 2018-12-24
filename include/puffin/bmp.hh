@@ -11,9 +11,10 @@
 
 #include <cstdint>
 #include <string>
+#include "image.hh"
 
 namespace puffin {
-void read_bmp(std::string const &filename);
+/*Image64*/ void read_bmp(std::string const &filename);
 }
 
 #endif //BMP_HH_INCLUDED_20181220
