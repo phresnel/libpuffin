@@ -84,7 +84,7 @@ BitmapColorTable::BitmapColorTable(
         puffin::impl::BitmapInfoHeader const &info,
         std::istream &f
 ) :
-        entries(readEntries(info, f))
+        entries_(readEntries(info, f))
 {
         reset(info, f);
 }
@@ -93,7 +93,7 @@ void BitmapColorTable::reset(
         puffin::impl::BitmapInfoHeader const &info,
         std::istream &f
 ) {
-        entries = readEntries(info, f);
+        entries_ = readEntries(info, f);
 }
 
 std::vector<BitmapColorTable::Entry>

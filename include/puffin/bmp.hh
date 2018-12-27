@@ -26,6 +26,7 @@ public:
         int height() const;
 
         Color32 operator() (int x, int y) const;
+        Color32 at (int x, int y) const;
 private:
         Bitmap32(Bitmap32 const &); // TODO: Define a public copy-ctor
         Bitmap32& operator= (Bitmap32 const &); // TODO: Define a public copy-assgnmt

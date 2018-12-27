@@ -21,6 +21,7 @@ struct Bitmap32::Impl {
                 imageData2bit.reset(header, infoHeader, f); // non standard
                 imageData4bit.reset(header, infoHeader, f);
                 imageData8bit.reset(header, infoHeader, f);
+                imageData24bit.reset(header, infoHeader, f);
 
                 // TODO: add some debug-info facility
                 // TODO: make degree of debugging output depend on some parameter
@@ -28,12 +29,25 @@ struct Bitmap32::Impl {
                 //       major protocols, e.g. json, XML, proto-bufs)
                 std::cout << header;
                 std::cout << infoHeader;
-                std::cout << "ColorTable:[...]\n"; //colorTable;
+                if (true) {
+                        std::cout << "ColorTable:[...]\n";
+                } else {
+                        std::cout << colorTable;
+                }
                 std::cout << colorMask;
-                std::cout << "ImageData1bit:" << (imageData1bit.empty()?"no":"yes") << "\n";
-                std::cout << "ImageData2bit:" << (imageData2bit.empty()?"no":"yes") << "\n";
-                std::cout << "ImageData4bit:" << (imageData4bit.empty()?"no":"yes") << "\n";
-                std::cout << "ImageData8bit:" << (imageData8bit.empty()?"no":"yes") << "\n";
+                if (false) {
+                        std::cout << "ImageData1bit:" << (imageData1bit.empty() ? "no" : "yes") << "\n";
+                        std::cout << "ImageData2bit:" << (imageData2bit.empty() ? "no" : "yes") << "\n";
+                        std::cout << "ImageData4bit:" << (imageData4bit.empty() ? "no" : "yes") << "\n";
+                        std::cout << "ImageData8bit:" << (imageData8bit.empty() ? "no" : "yes") << "\n";
+                        std::cout << "ImageData24bit:" << (imageData24bit.empty() ? "no" : "yes") << "\n";
+                } else {
+                        std::cout << imageData1bit ;
+                        std::cout << imageData2bit ;
+                        std::cout << imageData4bit ;
+                        std::cout << imageData8bit ;
+                        std::cout << imageData24bit;
+                }
         }
 
         int width() const {
@@ -71,16 +85,50 @@ struct Bitmap32::Impl {
                 );
         }
 
+        Color32 at32(int x, int y) const {
+                int pal = -1;
+                if (!imageData1bit.empty()) {
+                        pal = imageData1bit(x, y);
+                } else if (!imageData2bit.empty()) {
+                        pal = imageData2bit(x, y);
+                } else if (!imageData4bit.empty()) {
+                        pal = imageData4bit(x, y);
+                } else if (!imageData8bit.empty()) {
+                        pal = imageData8bit(x, y);
+                } else if (!imageData24bit.empty()) {
+                        pal = imageData24bit(x, y);
+                } else {
+                        throw std::logic_error("unsupported bpp");
+                }
+                if (pal < 0 || pal >= 1) {
+                        throw exceptions::palette_index_out_of_range(
+                                pal,
+                                static_cast<int>(colorTable.size()));
+                }
+
+                impl::BitmapColorTable::Entry entry = colorTable[pal];
+                return Color32(
+                        entry.red,
+                        entry.green,
+                        entry.blue
+                );
+        }
+
 private:
+        std::string filename;
         impl::BitmapHeader header;
         impl::BitmapInfoHeader infoHeader;
         impl::BitmapColorTable colorTable;
         impl::BitmapColorMasks colorMask;
-        impl::BitmapImageData<32, 1> imageData1bit;
-        impl::BitmapImageData<32, 2> imageData2bit; // non standard
-        impl::BitmapImageData<32, 4> imageData4bit;
-        impl::BitmapImageData<32, 8> imageData8bit;
-        // impl::BitmapImageData<64, 16> imageData16bit; // TODO: 64 bit (e.g. as supported by GDI+)
+        impl::BitmapImageData<impl::BitmapRowDataPaletted<32, 1>> imageData1bit;
+        impl::BitmapImageData<impl::BitmapRowDataPaletted<32, 2>> imageData2bit; // non standard
+        impl::BitmapImageData<impl::BitmapRowDataPaletted<32, 4>> imageData4bit;
+        impl::BitmapImageData<impl::BitmapRowDataPaletted<32, 8>> imageData8bit;
+        impl::BitmapImageData<impl::BitmapRowDataPaletted<32, 24>> imageData24bit;
+        // TODO: 32 bit (e.g. as supported by GDI+):
+        //       impl::BitmapImageData<64, 16> imageData16bit;
+        // TODO: 64 bit (e.g. as supported by GDI+):
+        //       impl::BitmapImageData<64, 16> imageData16bit;
 };
 
 
@@ -103,6 +151,10 @@ int Bitmap32::height() const {
 
 Color32 Bitmap32::operator()(int x, int y) const {
         return impl_->get32(x, y);
+}
+
+Color32 Bitmap32::at(int x, int y) const {
+        return impl_->at32(x, y);
 }
 
 

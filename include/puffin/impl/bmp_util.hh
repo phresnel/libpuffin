@@ -74,16 +74,24 @@ struct BitmapColorTable {
                 Entry(std::istream &);
                 void reset(std::istream &f);
         };
-        std::vector<Entry> entries;
 
         BitmapColorTable();
         BitmapColorTable (BitmapInfoHeader const &info, std::istream &f);
         void reset(BitmapInfoHeader const &info, std::istream &f);
 
         Entry operator[] (int i) const {
-                return entries[i];
+                return entries_[i];
+        }
+
+        Entry at (int i) const {
+                return entries_.at(i);
+        }
+
+        std::vector<Entry>::size_type size() const {
+                return entries_.size();
         }
 private:
+        std::vector<Entry> entries_;
         static std::vector<Entry> readEntries(
                 BitmapInfoHeader const &info,
                 std::istream &f
@@ -144,10 +152,10 @@ struct BitmapColorMasks {
 // spare us a confusing shift and a subtraction.
 //- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 template <int ChunkWidth, int PixelWidth>
-struct BitmapRowData ;
+struct BitmapRowDataPaletted ;
 
 template <int PixelWidth>
-struct BitmapRowData<32, PixelWidth> {
+struct BitmapRowDataPaletted<32, PixelWidth> {
 
         // -- constants ------------------------------------------------
         enum {
@@ -162,9 +170,9 @@ struct BitmapRowData<32, PixelWidth> {
         typedef std::vector<chunk_type> container_type;
 
         // -- members --------------------------------------------------
-        BitmapRowData() { }
+        BitmapRowDataPaletted() { }
 
-        BitmapRowData(
+        BitmapRowDataPaletted(
                 BitmapInfoHeader const &infoHeader,
                 std::istream &f
         ) {
@@ -247,19 +255,18 @@ private:
         }
 };
 
-template <int ChunkWidth, int PixelWidth>
-struct BitmapImageData ;
-
-template <int PixelWidth>
-struct BitmapImageData<32, PixelWidth> {
+template <typename RowType>
+struct BitmapImageData {
         // -- constants ------------------------------------------------
+        /*
         enum {
                 chunk_width = 32,
                 pixel_width = PixelWidth
         };
+        */
 
         // -- types ----------------------------------------------------
-        typedef BitmapRowData<chunk_width, pixel_width> row_type;
+        typedef RowType row_type;
         typedef std::vector<row_type> container_type;
         typedef typename container_type::size_type size_type;
 
@@ -404,8 +411,8 @@ std::ostream& operator<< (std::ostream &os, BitmapColorTable::Entry const &v) {
 inline
 std::ostream& operator<< (std::ostream &os, BitmapColorTable const &v) {
         os << "ColorTable{\n";
-        for (int i=0; i!=v.entries.size(); ++i) {
-                os << "  [" << std::setw(3) << i << "]:" << v.entries[i] << "\n";
+        for (int i=0; i!=v.size(); ++i) {
+                os << "  [" << std::setw(3) << i << "]:" << v[i] << "\n";
         }
         os << "}\n";
         return os;
@@ -420,15 +427,38 @@ std::ostream& operator<< (std::ostream &os, BitmapColorMasks const &v) {
                   << "}\n";
 }
 
-template <int ChunkWidth, int PixelWidth>
+namespace impl {
+        template <typename RowType>
+        struct OutputBitmapRowHelper {
+                static std::ostream& print_name(std::ostream &os) {
+                        return os << "[other row type]"
+                }
+        };
+
+
+        template <int ChunkWidth, int PixelWidth>
+        template <>
+        struct OutputBitmapRowHelper<
+                BitmapRowDataPaletted<ChunkWidth, PixelWidth> >
+        {
+                static std::ostream& print_name(std::ostream &os) {
+                        return os << "BitmapRowDataPaletted<"
+                                  << ChunkWidth << ", "
+                                  << PixelWidth << ">";
+                }
+        };
+}
+
+template <typename RowType>
 inline
 std::ostream& operator<< (
         std::ostream &os,
-        BitmapImageData<ChunkWidth, PixelWidth> const &data
+        BitmapImageData<RowType> const &data
 ) {
+        typedef impl::OutputBitmapRowHelper<RowType> row_type_helper;
         if (data.empty())
                 return os;
-        os << "ImageData<" << ChunkWidth << ", " << PixelWidth << "> {\n";
+        os << "BitmapImageData<" << row_type_helper::print_name(os) << "> {\n";
         for (int y=0; y!=data.height(); ++y) {
                 os << " [";
                 for (int x=0; x!=data.width(); ++x) {
