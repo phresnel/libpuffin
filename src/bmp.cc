@@ -26,10 +26,10 @@ struct Bitmap32::Impl {
                 std::cout << infoHeader;
                 std::cout << colorTable;
                 std::cout << colorMask;
-                std::cout << imageData1bit;
-                std::cout << imageData2bit;
-                std::cout << imageData4bit;
-                std::cout << imageData8bit;
+                std::cout << "ImageData1bit:" << (imageData1bit.empty()?"no":"yes") << "\n";
+                std::cout << "ImageData2bit:" << (imageData2bit.empty()?"no":"yes") << "\n";
+                std::cout << "ImageData4bit:" << (imageData4bit.empty()?"no":"yes") << "\n";
+                std::cout << "ImageData8bit:" << (imageData8bit.empty()?"no":"yes") << "\n";
         }
 
         int width() const {
@@ -76,6 +76,7 @@ private:
         impl::BitmapImageData<32, 2> imageData2bit; // non standard
         impl::BitmapImageData<32, 4> imageData4bit;
         impl::BitmapImageData<32, 8> imageData8bit;
+        // impl::BitmapImageData<64, 16> imageData16bit; // TODO: 64 bit (e.g. as supported by GDI+)
 };
 
 

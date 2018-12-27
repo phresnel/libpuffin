@@ -26,35 +26,19 @@ int main() {
         a.values(44,55,66,77);
         std::cout << std::dec << a;
          */
-        puffin::Bitmap32 *p = puffin::read_bmp32("dev-assets/bmp/rg_is_xy_2x2x8bit.bmp");
 
         try {
-                // image::Canvas canvas(512, 512);
-                //puffin::read_bmp("dev-assets/bmp/red256_green128_blue64_4x2x8bit.bmp");
-                //puffin::read_bmp("dev-assets/bmp/rg_is_xy_2x2x8bit.bmp");
-
-                /*
-                typedef puffin::basic_rgba<unsigned short, unsigned int, unsigned int, float> rgba_t;
-                rgba_t x(1, 1, 1, 0.5f);
-                std::cout << "rgb_have_common_type:" << rgba_t::rgb_have_common_type << std::endl;
-                std::cout << "rgba_have_common_type:" << rgba_t::rgba_have_common_type << std::endl;
-                */
-
-                //typedef puffin::basic_rgba<unsigned char, unsigned char, unsigned char, unsigned char> rgb565_t;
-                //rgb565_t x(1, 1, 1, 0.5);
-                return 0;
-
+                //puffin::Bitmap32 *p = puffin::read_bmp32("dev-assets/bmp/rg_is_xy_2x2x8bit.bmp");
+                puffin::Bitmap32 *p = puffin::read_bmp32("dev-assets/bmp/puffin_8bit.bmp");
                 puffin::impl::Sdl sdl;
-                auto renderer = sdl.createRenderer(512, 512);
-
-                // dev-assets/bmp/puffin_1bit.bmp
-                // dev-assets/bmp/puffin_4bit.bmp
-                // dev-assets/bmp/puffin_8bit.bmp
-                // dev-assets/bmp/puffin_24bit.bmp
-
-                // renderer.copy(canvas);
-                // renderer.present();
-
+                puffin::impl::SdlRenderer sdlRenderer = sdl.createRenderer(p->width(), p->height());
+                for (int y=0; y!=p->height(); ++y) {
+                        for (int x = 0; x!=p->width(); ++x) {
+                                const puffin::Color32 col = (*p)(x, y);
+                                sdlRenderer.setPixel(x, y, col.r(), col.g(), col.b());
+                        }
+                }
+                sdlRenderer.present();
                 sdl.pollTilQuit();
                 return 0;
         } catch (std::exception &e) {

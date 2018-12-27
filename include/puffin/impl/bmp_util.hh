@@ -189,8 +189,7 @@ struct BitmapRowData<32, PixelWidth> {
                         uint32_t flipped = 0U;
                         for (auto x=0U; x!=pixels_per_chunk; ++x) {
                                 const auto pixel = extract_pixel(chunk, x);
-                                flipped = (flipped<<pixel_width)
-                                          | pixel;
+                                flipped = (flipped<<pixel_width) | pixel;
                         }
 
                         chunks_.push_back(flipped);
@@ -278,19 +277,28 @@ struct BitmapImageData<32, PixelWidth> {
                 BitmapInfoHeader const &infoHeader,
                 std::istream &f
         ) {
-                if (infoHeader.bitsPerPixel != PixelWidth)
+                if (infoHeader.bitsPerPixel != PixelWidth) {
+                        clear_and_shrink();
                         return;
-
-                f.seekg(header.dataOffset);
-
-                // TODO: Discuss if it's better to trust infoHeader.ImageSize.
-                // TODO: honor 'infoHeader.isBottomUp'
-                rows_.clear();
-                rows_.reserve(infoHeader.height);
-                for (int y=0; y!=infoHeader.height; ++y) {
-                        rows_.emplace_back(infoHeader, f);
                 }
 
+                f.seekg(header.dataOffset);
+                if (infoHeader.isBottomUp) {
+                        // Least evil approach: Fill from behind while keeping
+                        // the advantages of std::vector and not needing a
+                        // temporary container object:
+                        clear_and_shrink(infoHeader.height);
+                        for (int y=infoHeader.height-1; y>=0; --y) {
+                                rows_[y].reset(infoHeader, f);
+                        }
+                } else {
+                        // Can construct upon reading:
+                        clear_and_shrink();
+                        rows_.reserve(infoHeader.height);
+                        for (int y = 0; y != infoHeader.height; ++y) {
+                                rows_.emplace_back(infoHeader, f);
+                        }
+                }
                 width_ = infoHeader.width;
         }
 
@@ -314,6 +322,13 @@ private:
         container_type rows_;
         size_type width_ ;
 
+        void clear_and_shrink(int newSize = 0) {
+                rows_.clear();
+                //  Explicit typing here to prevent incompatible container_type
+                // constructor:
+                std::vector<row_type> tmp(newSize);
+                tmp.swap(rows_);
+        }
 };
 
 } }
