@@ -65,12 +65,14 @@ struct BitmapInfoHeader {
 
 struct BitmapColorTable {
         struct Entry {
-                uint8_t red;
-                uint8_t green;
                 uint8_t blue;
+                uint8_t green;
+                uint8_t red;
                 uint8_t reserved;
 
+                Entry();
                 Entry(std::istream &);
+                void reset(std::istream &f);
         };
         std::vector<Entry> entries;
 
@@ -89,13 +91,13 @@ private:
 };
 
 
-struct BitmapColorMask {
-        uint32_t red;
-        uint32_t green;
+struct BitmapColorMasks {
         uint32_t blue;
+        uint32_t green;
+        uint32_t red;
 
-        BitmapColorMask();
-        BitmapColorMask (BitmapInfoHeader const &info, std::istream &f);
+        BitmapColorMasks();
+        BitmapColorMasks (BitmapInfoHeader const &info, std::istream &f);
         void reset (BitmapInfoHeader const &info, std::istream &f);
 };
 
@@ -410,7 +412,7 @@ std::ostream& operator<< (std::ostream &os, BitmapColorTable const &v) {
 }
 
 inline
-std::ostream& operator<< (std::ostream &os, BitmapColorMask const &v) {
+std::ostream& operator<< (std::ostream &os, BitmapColorMasks const &v) {
         return os << "ColorMask{\n"
                   << "  red..:" << v.red << "\n"
                   << "  green:" << v.green << "\n"

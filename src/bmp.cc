@@ -22,9 +22,13 @@ struct Bitmap32::Impl {
                 imageData4bit.reset(header, infoHeader, f);
                 imageData8bit.reset(header, infoHeader, f);
 
+                // TODO: add some debug-info facility
+                // TODO: make degree of debugging output depend on some parameter
+                // TODO: make output extensible (in a way that allows for all
+                //       major protocols, e.g. json, XML, proto-bufs)
                 std::cout << header;
                 std::cout << infoHeader;
-                std::cout << colorTable;
+                std::cout << "ColorTable:[...]\n"; //colorTable;
                 std::cout << colorMask;
                 std::cout << "ImageData1bit:" << (imageData1bit.empty()?"no":"yes") << "\n";
                 std::cout << "ImageData2bit:" << (imageData2bit.empty()?"no":"yes") << "\n";
@@ -71,7 +75,7 @@ private:
         impl::BitmapHeader header;
         impl::BitmapInfoHeader infoHeader;
         impl::BitmapColorTable colorTable;
-        impl::BitmapColorMask colorMask;
+        impl::BitmapColorMasks colorMask;
         impl::BitmapImageData<32, 1> imageData1bit;
         impl::BitmapImageData<32, 2> imageData2bit; // non standard
         impl::BitmapImageData<32, 4> imageData4bit;

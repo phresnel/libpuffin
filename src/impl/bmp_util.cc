@@ -112,39 +112,48 @@ BitmapColorTable::readEntries(BitmapInfoHeader const &info, std::istream &f) {
         return ret;
 }
 
-
-BitmapColorTable::Entry::Entry(std::istream &f) :
-        blue{impl::read_uint8_le(f)},
-        green{impl::read_uint8_le(f)},
-        red{impl::read_uint8_le(f)},
-        reserved{impl::read_uint8_le(f)}
-{
-
-}
-
-BitmapColorMask::BitmapColorMask() :
-        red(0),
+BitmapColorTable::Entry::Entry() :
+        blue(0),
         green(0),
-        blue(0)
+        red(0)
 {
 }
 
-BitmapColorMask::BitmapColorMask(
+BitmapColorTable::Entry::Entry(std::istream &f)
+{
+        reset(f);
+}
+
+void BitmapColorTable::Entry::reset(std::istream &f) {
+        blue = impl::read_uint8_le(f);
+        green = impl::read_uint8_le(f);
+        red = impl::read_uint8_le(f);
+        reserved = impl::read_uint8_le(f);
+}
+
+BitmapColorMasks::BitmapColorMasks() :
+        blue(0),
+        green(0),
+        red(0)
+{
+}
+
+BitmapColorMasks::BitmapColorMasks(
         puffin::impl::BitmapInfoHeader const &info,
         std::istream &f
 ) {
         reset(info, f);
 }
 
-void BitmapColorMask::reset(
+void BitmapColorMasks::reset(
         puffin::impl::BitmapInfoHeader const &info,
         std::istream &f
 ) {
         if (info.compression != BitmapCompression::BI_BITFIELDS)
                 return;
-        red = impl::read_uint32_le(f);
-        green = impl::read_uint32_le(f);
         blue = impl::read_uint32_le(f);
+        green = impl::read_uint32_le(f);
+        red = impl::read_uint32_le(f);
 }
 
 } }
