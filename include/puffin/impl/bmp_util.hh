@@ -2,6 +2,7 @@
 #define BMP_UTIL_HH_INCLUDED_20181220
 
 #include "puffin/impl/io_util.hh"
+#include "puffin/impl/type_str.hh"
 #include "puffin/bitfield.hh"
 #include <vector>
 
@@ -156,15 +157,26 @@ struct BitmapColorMasks {
 //
 // spare us a confusing shift and a subtraction.
 //- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-template <int ChunkWidth, int PixelWidth>
-struct BitmapRowDataPaletted ;
 
-template <int PixelWidth>
-struct BitmapRowDataPaletted<32, PixelWidth> {
+template <typename T>
+struct optional_rgb_members {
+};
 
+template <int RWidth, int GWidth, int BWidth>
+struct optional_rgb_members<bitfield4<RWidth, GWidth, BWidth, 0> > {
+        enum {
+                r_width = RWidth,
+                g_width = GWidth,
+                b_width = BWidth
+        };
+};
+
+template <int ChunkWidth, int PixelWidth, typename ColorType>
+struct BitmapRowData : optional_rgb_members<ColorType> {
         // -- constants ------------------------------------------------
         enum {
-                chunk_width = 32,
+                chunk_width = ChunkWidth,
+                bytes_per_chunk = chunk_width / 8,
                 pixel_width = PixelWidth,
                 pixels_per_chunk = chunk_width / pixel_width,
                 pixel_mask = (1U << pixel_width) - 1U,
@@ -172,17 +184,14 @@ struct BitmapRowDataPaletted<32, PixelWidth> {
         };
 
         // -- types ----------------------------------------------------
+        typedef ColorType color_type;
         typedef uint32_t chunk_type;
         typedef std::vector<chunk_type> container_type;
-        typedef int color_type;
 
         // -- members --------------------------------------------------
-        BitmapRowDataPaletted() { }
+        BitmapRowData() { }
 
-        BitmapRowDataPaletted(
-                BitmapInfoHeader const &infoHeader,
-                std::istream &f
-        ) {
+        BitmapRowData(BitmapInfoHeader const &infoHeader, std::istream &f) {
                 reset(infoHeader, f);
         }
 
@@ -190,131 +199,23 @@ struct BitmapRowDataPaletted<32, PixelWidth> {
                 BitmapInfoHeader const &infoHeader,
                 std::istream &f
         ) {
-                const auto numChunks = width_to_chunk_count(infoHeader.width);
+                const uint32_t numChunks = width_to_chunk_count(infoHeader.width);
                 chunks_.clear();
                 chunks_.reserve(numChunks);
-                for (auto i=0U; i!=numChunks; ++i) {
-                        // Too load the chunk unaltered, simply do:
-                        //    const uint32_t chunk = read_uint32_be(f);
-                        //    chunks_.push_back(chunk);
-                        // This would require another (worse) version of
-                        // extract_pixel(), though.
-
-                        const uint32_t chunk = read_uint32_be(f) >>
-                                               nonsignificant_bits;
-
-                        // Now flip the order of pixels in this chunk:
-                        uint32_t flipped = 0U;
-                        for (auto x=0U; x!=pixels_per_chunk; ++x) {
-                                const auto pixel = extract_pixel(chunk, x);
-                                flipped = (flipped<<pixel_width) | pixel;
-                        }
-
-                        chunks_.push_back(flipped);
-                }
-        }
-
-        int operator[] (int x) const {
-                const uint32_t
-                        chunk_index = x_to_chunk_index(x),
-                        chunk_ofs   = x_to_chunk_offset(x),
-                        chunk = chunks_[chunk_index],
-                        value = extract_pixel(chunk, chunk_ofs);
-                return static_cast<int>(value);
-        }
-
-private:
-        // -- data -----------------------------------------------------
-        container_type chunks_;
-
-        // -- functions ------------------------------------------------
-        static
-        uint32_t width_to_chunk_count(uint32_t x) noexcept {
-                // This adjusted division ensures that any result with
-                // a non-zero fractional part is rounded up:
-                //      width=64  ==>  c = (64 + 31) / 32 = 95 / 32 = 2
-                //      width=65  ==>  c = (65 + 31) / 32 = 96 / 32 = 3
-                return (x + pixels_per_chunk - 1U) / pixels_per_chunk;
-        }
-
-        static
-        uint32_t x_to_chunk_index(uint32_t x) {
-                return x / pixels_per_chunk;
-        }
-
-        static
-        uint32_t x_to_chunk_offset(uint32_t x) {
-                return x - x_to_chunk_index(x) * pixels_per_chunk;
-        }
-
-        static
-        uint32_t extract_pixel(uint32_t chunk, uint32_t ofs) {
-                const uint32_t
-                        rshift = ofs * pixel_width,
-                        value = (chunk >> rshift) & pixel_mask;
-                return value;
-
-                // Here's the code for [pixel_0, pixel_1, ..., pixel_n]:
-                //
-                // const uint32_t
-                //        rshift = chunk_width-pixel_width - ofs*pixel_width,
-                //        value = (chunk >> rshift) & pixel_mask;
-                // return value;
-        }
-};
-
-template <int ChunkWidth, int RWidth, int GWidth, int BWidth>
-struct BitmapRowDataRgb {
-        // -- constants ------------------------------------------------
-        enum {
-                chunk_width = ChunkWidth,
-                bytes_per_chunk = chunk_width / 8,
-                r_width = RWidth,
-                g_width = GWidth,
-                b_width = BWidth,
-                pixel_width = r_width+g_width+b_width,
-                pixels_per_chunk = chunk_width / pixel_width,
-                pixel_mask = (1U << pixel_width) - 1U,
-                nonsignificant_bits = chunk_width % pixel_width
-        };
-
-        // -- types ----------------------------------------------------
-        typedef uint32_t chunk_type;
-        typedef std::vector<chunk_type> container_type;
-        typedef bitfield4<b_width, g_width, r_width, 0> color_type;
-
-        // -- members --------------------------------------------------
-        BitmapRowDataRgb() { }
-
-        BitmapRowDataRgb(
-                BitmapInfoHeader const &infoHeader,
-                std::istream &f
-        ) {
-                reset(infoHeader, f);
-        }
-
-        void reset(
-                BitmapInfoHeader const &infoHeader,
-                std::istream &f
-        ) {
-                const auto numChunks = width_to_chunk_count(infoHeader.width);
-                chunks_.clear();
-                chunks_.reserve(numChunks);
-                for (auto i=0U; i!=numChunks; ++i) {
+                for (uint32_t i=0U; i!=numChunks; ++i) {
 
                         // TODO: make chunk-type more generic.
-                        const uint64_t chunk =
+                        const chunk_type chunk =
                                 read_bytes_to_uint64_be(f, bytes_per_chunk) >>
                                 nonsignificant_bits;
 
                         // Flip the order of pixels in this chunk (which will
                         //  result in a more trivial extract_pixel() function):
-                        uint32_t flipped = 0U;
-                        for (auto x=0U; x!=pixels_per_chunk; ++x) {
-                                const auto pixel = extract_pixel(chunk, x);
+                        chunk_type flipped = 0U;
+                        for (uint32_t j=0U; j!=pixels_per_chunk; ++j) {
+                                const chunk_type pixel = extract_pixel(chunk, j);
                                 flipped = (flipped<<pixel_width) | pixel;
                         }
-
                         chunks_.push_back(flipped);
                 }
 
@@ -345,7 +246,7 @@ struct BitmapRowDataRgb {
                         chunk_ofs   = x_to_chunk_offset(x),
                         chunk = chunks_[chunk_index],
                         value = extract_pixel(chunk, chunk_ofs);
-                return value;
+                return static_cast<color_type>(value);
         }
 
 private:
@@ -354,12 +255,12 @@ private:
 
         // -- functions ------------------------------------------------
         static
-        uint32_t width_to_chunk_count(uint32_t width) noexcept {
+        uint32_t width_to_chunk_count(uint32_t x) noexcept {
                 // This adjusted division ensures that any result with
                 // a non-zero fractional part is rounded up:
                 //      width=64  ==>  c = (64 + 31) / 32 = 95 / 32 = 2
                 //      width=65  ==>  c = (65 + 31) / 32 = 96 / 32 = 3
-                return (width + pixels_per_chunk - 1U) / pixels_per_chunk;
+                return (x + pixels_per_chunk - 1U) / pixels_per_chunk;
         }
 
         static
@@ -483,6 +384,33 @@ private:
 
 namespace puffin { namespace impl {
 
+template <int ChunkWidth, int PixelWidth, typename ColorType>
+inline
+std::string type_str(
+        BitmapRowData<ChunkWidth, PixelWidth, ColorType> const &
+) {
+        std::stringstream ss;
+        ss << "BitmapRowData<"
+           << "ChunkWidth=" << ChunkWidth << ", "
+           << "PixelWidth=" << PixelWidth << ", "
+           << "ColorType="  << type_str (ColorType())
+           << ">";
+        return ss.str();
+}
+
+template <typename RowType>
+inline
+std::string type_str(
+        BitmapImageData<RowType> const &
+) {
+        std::stringstream ss;
+        ss << "BitmapImageData<"
+           << "RowType=" << type_str (RowType())
+           << ">";
+        return ss.str();
+}
+
+
 inline
 std::ostream& operator<< (std::ostream &os, BitmapCompression bc) {
         switch (bc) {
@@ -558,42 +486,6 @@ std::ostream& operator<< (std::ostream &os, BitmapColorMasks const &v) {
                   << "  green:" << v.green << "\n"
                   << "  blue.:" << v.blue << "\n"
                   << "}\n";
-}
-
-// TODO: move type_str() elsewhere
-template <int ChunkWidth, int PixelWidth>
-inline std::string type_str(
-        BitmapRowDataPaletted<ChunkWidth, PixelWidth> const &
-) {
-        std::stringstream ss;
-        ss << "BitmapRowDataPaletted<"
-           << ChunkWidth << ", "
-           << PixelWidth << ">";
-        return ss.str();
-}
-
-template <int ChunkWidth, int RWidth, int GWidth, int BWidth>
-inline std::string type_str(
-        BitmapRowDataRgb<ChunkWidth, RWidth, GWidth, BWidth> const &
-) {
-        std::stringstream ss;
-        ss << "BitmapRowDataRgb<"
-           << ChunkWidth << ", "
-           << RWidth << ", "
-           << GWidth << ", "
-           << BWidth << ">";
-        return ss.str();
-}
-
-template <typename RowType>
-inline std::string type_str(
-        BitmapImageData<RowType> const &
-) {
-        std::stringstream ss;
-        ss << "BitmapImageData<"
-           << type_str(RowType())
-           << ">";
-        return ss.str();
 }
 
 template <typename RowType>

@@ -82,21 +82,28 @@ struct Bitmap32::Impl {
         }
 
 private:
+        // -- types ------------------------------------------------------------
+        typedef bitfield4<8, 8, 8, 0> color_type_24bit;
+
+        // -- data -------------------------------------------------------------
         std::string filename;
         impl::BitmapHeader header;
         impl::BitmapInfoHeader infoHeader;
         impl::BitmapColorTable colorTable;
         impl::BitmapColorMasks colorMask;
-        impl::BitmapImageData<impl::BitmapRowDataPaletted<32, 1>> imageData1bit;
-        impl::BitmapImageData<impl::BitmapRowDataPaletted<32, 2>> imageData2bit; // non standard
-        impl::BitmapImageData<impl::BitmapRowDataPaletted<32, 4>> imageData4bit;
-        impl::BitmapImageData<impl::BitmapRowDataPaletted<32, 8>> imageData8bit;
-        impl::BitmapImageData<impl::BitmapRowDataRgb<24, 8, 8, 8>> imageData24bit;
-        // TODO: 32 bit (e.g. as supported by GDI+):
-        //       impl::BitmapImageData<64, 16> imageData16bit;
+        impl::BitmapImageData<impl::BitmapRowData<32, 1, int> > imageData1bit;
+        impl::BitmapImageData<impl::BitmapRowData<32, 2, int> > imageData2bit;
+        impl::BitmapImageData<impl::BitmapRowData<32, 4, int> > imageData4bit;
+        impl::BitmapImageData<impl::BitmapRowData<32, 8, int> > imageData8bit;
+        impl::BitmapImageData<impl::BitmapRowData<24, 24, color_type_24bit> >
+                                                                imageData24bit;
+
+        // TODO: 32 bit:
+        //       impl::BitmapImageData<64, 16> imageData32bit;
         // TODO: 64 bit (e.g. as supported by GDI+):
         //       impl::BitmapImageData<64, 16> imageData16bit;
 
+        // -- methods ----------------------------------------------------------
         int get_palette_index(int x, int y) const {
                 if (!imageData1bit.empty()) {
                         return imageData1bit(x, y);
@@ -141,8 +148,7 @@ private:
         template <bool EnableExceptions>
         Color32 get_rgb_color32(int x, int y) const {
                 if (!imageData24bit.empty()) {
-                        impl::BitmapRowDataRgb<24, 8, 8, 8>::color_type
-                                col = imageData24bit(x, y);
+                        const color_type_24bit col = imageData24bit(x, y);
                         const uint8_t
                                 r = static_cast<uint8_t>(col.value1()),
                                 g = static_cast<uint8_t>(col.value2()),

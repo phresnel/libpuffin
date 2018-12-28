@@ -115,6 +115,18 @@ std::ostream& operator<< (std::ostream &os, bitfield4<a,b,c,d> const &bf) {
         return os;
 }
 
+template <int bits1, int bits2, int bits3, int bits4>
+inline
+std::string type_str(bitfield4<bits1, bits2, bits3, bits4> const &) {
+        std::stringstream ss;
+        ss << "bitfield4<"
+           << "Bits1=" << bits1 << ", "
+           << "Bits2=" << bits2 << ", "
+           << "Bits3=" << bits3 << ", "
+           << "Bits4=" << bits4 << ">";
+        return ss.str();
+}
+
 }
 
 /*
