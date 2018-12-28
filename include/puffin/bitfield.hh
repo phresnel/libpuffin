@@ -3,12 +3,13 @@
 
 #include <ostream>
 #include <cstdint>
+#include <bitset>
 
 // Simple, generic bitfield implementation.
 // Unfortunately, we can not get it to have a guaranteed size of 64 bit
 // or more in C++03 (in C++11, it's as simple as enum:uint64_t).
 
-namespace puffin { namespace impl {
+namespace puffin {
 
 // -- set_bits -----------------------------------------------------------------
 template <int v> struct set_bits {
@@ -59,6 +60,17 @@ struct bitfield4 {
         enum { storage_bits = fit_to_uint<bits>::bits };
 
         storage_type storage;
+
+        bitfield4() {}
+
+        bitfield4(
+                storage_type a, storage_type b, storage_type c, storage_type d
+        ) {
+                values(a,b,c,d);
+        }
+
+        bitfield4(storage_type raw) : storage(raw) { }
+
         storage_type value1() const { return (storage & mask1) >> shift1; }
         storage_type value2() const { return (storage & mask2) >> shift2; }
         storage_type value3() const { return (storage & mask3) >> shift3; }
@@ -103,7 +115,7 @@ std::ostream& operator<< (std::ostream &os, bitfield4<a,b,c,d> const &bf) {
         return os;
 }
 
-} }
+}
 
 /*
         typedef puffin::bitfield4<8,8,8,8> bf;

@@ -3,6 +3,7 @@
 #include "puffin/exceptions.hh"
 #include <iostream>
 #include <fstream>
+#include <bitset>
 
 namespace puffin {
 
@@ -30,12 +31,15 @@ struct Bitmap32::Impl {
                 std::cout << header;
                 std::cout << infoHeader;
                 if (true) {
-                        std::cout << "ColorTable:[...]\n";
+                        if (colorTable.empty())
+                                std::cout << "ColorTable:<empty>\n";
+                        else
+                                std::cout << "ColorTable:[...]\n";
                 } else {
                         std::cout << colorTable;
                 }
                 std::cout << colorMask;
-                if (false) {
+                if (true) {
                         std::cout << "ImageData1bit:" << (imageData1bit.empty() ? "no" : "yes") << "\n";
                         std::cout << "ImageData2bit:" << (imageData2bit.empty() ? "no" : "yes") << "\n";
                         std::cout << "ImageData4bit:" << (imageData4bit.empty() ? "no" : "yes") << "\n";
@@ -59,59 +63,22 @@ struct Bitmap32::Impl {
         }
 
         Color32 get32(int x, int y) const {
-                int pal = -1;
-                if (!imageData1bit.empty()) {
-                        pal = imageData1bit(x, y);
-                } else if (!imageData2bit.empty()) {
-                        pal = imageData2bit(x, y);
-                } else if (!imageData4bit.empty()) {
-                        pal = imageData4bit(x, y);
-                } else if (!imageData8bit.empty()) {
-                        pal = imageData8bit(x, y);
-                } else {
-                        // error
-                        return Color32();
+                if (is_paletted()) {
+                        return get_paletted_color32<false>(x, y);
                 }
-                if (-1 == pal) {
-                        // error
-                        return Color32();
-                }
-
-                impl::BitmapColorTable::Entry entry = colorTable[pal];
-                return Color32(
-                        entry.red,
-                        entry.green,
-                        entry.blue
-                );
+                return get_rgb_color32<false>(x, y);
         }
 
         Color32 at32(int x, int y) const {
-                int pal = -1;
-                if (!imageData1bit.empty()) {
-                        pal = imageData1bit(x, y);
-                } else if (!imageData2bit.empty()) {
-                        pal = imageData2bit(x, y);
-                } else if (!imageData4bit.empty()) {
-                        pal = imageData4bit(x, y);
-                } else if (!imageData8bit.empty()) {
-                        pal = imageData8bit(x, y);
-                } else if (!imageData24bit.empty()) {
-                        pal = imageData24bit(x, y);
-                } else {
-                        throw std::logic_error("unsupported bpp");
+                if (is_paletted()) {
+                        return get_paletted_color32<true>(x, y);
                 }
-                if (pal < 0 || pal >= 1) {
-                        throw exceptions::palette_index_out_of_range(
-                                pal,
-                                static_cast<int>(colorTable.size()));
-                }
+                return get_rgb_color32<true>(x, y);
+        }
 
-                impl::BitmapColorTable::Entry entry = colorTable[pal];
-                return Color32(
-                        entry.red,
-                        entry.green,
-                        entry.blue
-                );
+        bool is_paletted() const {
+                return infoHeader.colorsUsed != 0 ||
+                       infoHeader.bitsPerPixel <= 8;
         }
 
 private:
@@ -124,11 +91,71 @@ private:
         impl::BitmapImageData<impl::BitmapRowDataPaletted<32, 2>> imageData2bit; // non standard
         impl::BitmapImageData<impl::BitmapRowDataPaletted<32, 4>> imageData4bit;
         impl::BitmapImageData<impl::BitmapRowDataPaletted<32, 8>> imageData8bit;
-        impl::BitmapImageData<impl::BitmapRowDataPaletted<32, 24>> imageData24bit;
+        impl::BitmapImageData<impl::BitmapRowDataRgb<24, 8, 8, 8>> imageData24bit;
         // TODO: 32 bit (e.g. as supported by GDI+):
         //       impl::BitmapImageData<64, 16> imageData16bit;
         // TODO: 64 bit (e.g. as supported by GDI+):
         //       impl::BitmapImageData<64, 16> imageData16bit;
+
+        int get_palette_index(int x, int y) const {
+                if (!imageData1bit.empty()) {
+                        return imageData1bit(x, y);
+                } else if (!imageData2bit.empty()) {
+                        return imageData2bit(x, y);
+                } else if (!imageData4bit.empty()) {
+                        return imageData4bit(x, y);
+                } else if (!imageData8bit.empty()) {
+                        return imageData8bit(x, y);
+                }
+                return -1;
+        }
+
+        template <bool EnableExceptions>
+        Color32 get_paletted_color32(int x, int y) const {
+                const int pal = get_palette_index(x, y);
+                if (pal == -1) {
+                        if (EnableExceptions) {
+                                throw std::logic_error(
+                                        "unsupported bpp for paletted bmp");
+                        } else {
+                                return Color32();
+                        }
+                } else if (pal >= colorTable.size()) {
+                        if (EnableExceptions) {
+                                throw exceptions::palette_index_out_of_range(
+                                        pal,
+                                        static_cast<int>(colorTable.size()));
+                        } else {
+                                return Color32();
+                        }
+                }
+
+                const impl::BitmapColorTable::Entry entry = colorTable[pal];
+                return Color32(
+                        entry.red,
+                        entry.green,
+                        entry.blue
+                );
+        }
+
+        template <bool EnableExceptions>
+        Color32 get_rgb_color32(int x, int y) const {
+                if (!imageData24bit.empty()) {
+                        impl::BitmapRowDataRgb<24, 8, 8, 8>::color_type
+                                col = imageData24bit(x, y);
+                        const uint8_t
+                                r = static_cast<uint8_t>(col.value1()),
+                                g = static_cast<uint8_t>(col.value2()),
+                                b = static_cast<uint8_t>(col.value3());
+                        return Color32(r, g, b);
+                }
+
+                if (EnableExceptions) {
+                        throw std::logic_error(
+                                "unsupported bpp for rgb bmp");
+                }
+                return Color32();
+        }
 };
 
 

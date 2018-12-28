@@ -106,6 +106,7 @@ BitmapColorTable::readEntries(BitmapInfoHeader const &info, std::istream &f) {
 
         std::vector<Entry> ret;
         ret.reserve(numColors);
+        // TODO: Probably need to rework the table size determination
         for (unsigned int i=0; i<numColors; ++i) {
                 ret.push_back(Entry{f});
         }

@@ -25,6 +25,18 @@ inline int32_t read_int32_le(std::istream &f) {
         return static_cast<int32_t>(read_uint32_le(f));
 }
 
+inline uint64_t read_bytes_to_uint64_le(std::istream &f, int num_bytes) {
+        uint64_t bytes = 0;
+        for (int i=0; i!=num_bytes; ++i) {
+                const uint64_t byte = read_uint8_le(f);
+                bytes = (bytes<<8) | byte;
+        }
+        return bytes;
+}
+inline uint32_t read_bytes_to_uint32_le(std::istream &f, int num_bytes) {
+        return static_cast<uint32_t>(read_bytes_to_uint64_le(f, num_bytes));
+}
+
 // Big endian helpers:
 inline uint8_t read_uint8_be(std::istream &f) {
         return static_cast<uint8_t>(f.get());
@@ -40,6 +52,18 @@ inline uint32_t read_uint32_be(std::istream &f) {
 inline uint64_t read_uint64_be(std::istream &f) {
         return static_cast<uint64_t>(read_uint32_be(f)) << 32 |
                read_uint32_be(f);
+}
+
+inline uint64_t read_bytes_to_uint64_be(std::istream &f, int num_bytes) {
+        uint64_t bytes = 0;
+        for (int i=0; i!=num_bytes; ++i) {
+                const uint64_t byte = read_uint8_be(f);
+                bytes |= byte << (8*i);
+        }
+        return bytes;
+}
+inline uint32_t read_bytes_to_uint32_be(std::istream &f, int num_bytes) {
+        return static_cast<uint32_t>(read_bytes_to_uint64_be(f, num_bytes));
 }
 
 } }
