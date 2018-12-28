@@ -179,7 +179,7 @@ struct BitmapRowData : optional_rgb_members<ColorType> {
                 bytes_per_chunk = chunk_width / 8,
                 pixel_width = PixelWidth,
                 pixels_per_chunk = chunk_width / pixel_width,
-                pixel_mask = (1U << pixel_width) - 1U,
+                pixel_mask = (1U << pixel_width) - 1U, // TODO: This may fail for large types
                 nonsignificant_bits = chunk_width % pixel_width
         };
 

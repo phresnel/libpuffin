@@ -19,7 +19,7 @@ struct Bitmap32::Impl {
                 colorTable.reset(infoHeader, f);
                 colorMask.reset(infoHeader, f);
                 imageData1bit.reset(header, infoHeader, f);
-                imageData2bit.reset(header, infoHeader, f); // non standard
+                imageData2bit.reset(header, infoHeader, f);
                 imageData4bit.reset(header, infoHeader, f);
                 imageData8bit.reset(header, infoHeader, f);
                 imageData24bit.reset(header, infoHeader, f);
