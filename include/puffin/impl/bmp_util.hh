@@ -162,8 +162,8 @@ template <typename T>
 struct optional_rgb_members {
 };
 
-template <int RWidth, int GWidth, int BWidth>
-struct optional_rgb_members<bitfield4<RWidth, GWidth, BWidth, 0> > {
+template <int BWidth, int GWidth, int RWidth>
+struct optional_rgb_members<bitfield4<BWidth, GWidth, RWidth, 0> > {
         enum {
                 r_width = RWidth,
                 g_width = GWidth,
@@ -206,8 +206,9 @@ struct BitmapRowData : optional_rgb_members<ColorType> {
 
                         // TODO: make chunk-type more generic.
                         const chunk_type chunk =
-                                read_bytes_to_uint64_be(f, bytes_per_chunk) >>
+                                read_bytes_to_uint64_le(f, bytes_per_chunk) >>
                                 nonsignificant_bits;
+                        //chunks_.push_back(chunk);
 
                         // Flip the order of pixels in this chunk (which will
                         //  result in a more trivial extract_pixel() function):

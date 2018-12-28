@@ -150,9 +150,9 @@ private:
                 if (!imageData24bit.empty()) {
                         const color_type_24bit col = imageData24bit(x, y);
                         const uint8_t
-                                r = static_cast<uint8_t>(col.value1()),
+                                b = static_cast<uint8_t>(col.value1()),
                                 g = static_cast<uint8_t>(col.value2()),
-                                b = static_cast<uint8_t>(col.value3());
+                                r = static_cast<uint8_t>(col.value3());
                         return Color32(r, g, b);
                 }
 
