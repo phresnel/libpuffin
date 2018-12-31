@@ -8,12 +8,14 @@
 #include <iomanip>
 #include <stdexcept>
 
+#include <vector>
 #include <bitset>
 #include <sstream>
 
 // Basis for a more flexible approach.
 namespace puffin {
 
+// -- signedness ---------------------------------------------------------------
 enum signedness {
         is_unspecified = 0,
         is_signed = 1,
@@ -21,6 +23,256 @@ enum signedness {
 };
 typedef signedness signedness_t;
 
+// -- bitmask ------------------------------------------------------------------
+class bitmask {
+        typedef std::vector<bool> container_type;
+public:
+        typedef container_type::iterator iterator;
+        typedef container_type::const_iterator const_iterator;
+        typedef container_type::reverse_iterator reverse_iterator;
+        typedef container_type::const_reverse_iterator const_reverse_iterator;
+        typedef container_type::size_type size_type;
+        typedef container_type::reference reference;
+        typedef container_type::const_reference const_reference;
+
+        // -- constructors & assignment ----------------------------------------
+        static bitmask Bitmask8(uint8_t mask) {
+                return bitmask(8, mask);
+        }
+
+        static bitmask Bitmask16(uint16_t mask) {
+                return bitmask(16, mask);
+        }
+
+        static bitmask Bitmask32(uint32_t mask) {
+                return bitmask(32, mask);
+        }
+
+        static bitmask Bitmask64(uint64_t mask) {
+                return bitmask(64, mask);
+        }
+
+        bitmask() {}
+        bitmask(bitmask const &v) : bits_(v.bits_) {}
+        bitmask& operator= (bitmask v) {
+                bits_.swap(v.bits_);
+                return *this;
+        }
+
+        template <typename MaskT>
+        bitmask(size_type size, MaskT mask) :
+                bits_(size)
+        {
+                for (int i=0; i<size; ++i) {
+                        const bool b = (i<std::numeric_limits<MaskT>::digits) ?
+                                       ((mask >> i) & 1) :
+                                       0;
+                        bits_[i] = b;
+                }
+        }
+
+        // ---------------------------------------------------------------------
+        size_type size() const {
+                return bits_.size();
+        }
+
+        bool empty() const {
+                return size() == 0;
+        }
+
+        void push_back(bool v) {
+                bits_.push_back(v);
+        }
+
+        reference operator[] (size_type i) {
+                return bits_[i];
+        }
+
+        const_reference operator[] (size_type i) const {
+                return bits_[i];
+        }
+
+        reference at (size_type i) {
+                return bits_.at(i);
+        }
+
+        const_reference at (size_type i) const {
+                return bits_.at(i);
+        }
+
+        // -- range ------------------------------------------------------------
+        iterator begin() { return bits_.begin(); }
+        iterator end() { return bits_.end(); }
+
+        const_iterator cbegin() const { return bits_.begin(); }
+        const_iterator cend() const { return bits_.end(); }
+
+        const_iterator begin() const { return cbegin(); }
+        const_iterator end() const { return cend(); }
+
+        reverse_iterator rbegin() { return bits_.rbegin(); }
+        reverse_iterator rend() { return bits_.rend(); }
+
+        const_reverse_iterator crbegin() const { return bits_.rbegin(); }
+        const_reverse_iterator crend() const { return bits_.rend(); }
+
+        const_reverse_iterator rbegin() const { return crbegin(); }
+        const_reverse_iterator rend() const { return crend(); }
+
+        // ---------------------------------------------------------------------
+        void prune() {
+                while(!bits_.empty()
+                      && !bits_.back())
+                        bits_.pop_back();
+        }
+
+        bool is_zero() const {
+                for (const_iterator it=begin(); it!=end(); ++it) {
+                        if (*it)
+                                return false;
+                }
+                return true;
+        }
+
+        bool is_non_zero() const {
+                for (const_iterator it=begin(); it!=end(); ++it) {
+                        if (*it)
+                                return true;
+                }
+                return false;
+        }
+
+        size_type count() const {
+                size_type ret = 0;
+                for (const_iterator it=begin(); it!=end(); ++it) {
+                        ret += *it ? 1 : 0;
+                }
+                return ret;
+        }
+
+        size_type highest_bit() const {
+                if (empty())
+                        return 0;
+                size_type i=size();
+                do {
+                        --i;
+                        if ((*this)[i])
+                                return i;
+                } while(i!=0);
+                return 0;
+        }
+
+        size_type lowest_bit() const {
+                for (size_type i=0; i!=size(); ++i)
+                        if ((*this)[i])
+                                return i;
+                return 0;
+        }
+
+        template <typename T>
+        T extract_value(T const &bits) const {
+                if (is_zero())
+                        return 0;
+
+                size_type ret_i = 0;
+                T ret = 0;
+                for(size_type i=0, s=size();
+                    i<s && ret_i<std::numeric_limits<T>::digits;
+                    ++i
+                ) {
+                        if (!(*this)[i])
+                                continue;
+
+                        const int val = (bits>>i) & 1;
+                        ret |= (val<<ret_i);
+                        ++ret_i;
+                }
+                return ret;
+        }
+
+        // ---------------------------------------------------------------------
+        size_type min_value() const {
+                return 0;
+        }
+
+        size_type max_value() const {
+                if (is_zero())
+                        return 0;
+                return num_states()-1;
+        }
+
+        size_type num_states() const {
+                int ret = 1;
+                for (int i=0, c=count(); i!=c; ++i) {
+                        ret *= 2;
+                }
+                return ret;
+        }
+private:
+        std::vector<bool> bits_;
+};
+
+std::ostream& operator<< (std::ostream &os, bitmask const &v) {
+        int bb = 0;
+        for(bitmask::const_reverse_iterator it=v.rbegin(); it!=v.rend(); ++it) {
+                if (bb>0 && bb%8 == 0)
+                        os << ".";
+                ++bb;
+                os << (*it ? "1" : "0");
+        }
+        os << " (non-zero:" << v.is_non_zero() << ", "
+           << "size:" << v.size() << ", "
+           << "lo:" << v.lowest_bit() << ", "
+           << "hi:" << v.highest_bit() << ", "
+           << "min:" << v.min_value() << ", "
+           << "max:" << v.max_value() << ", "
+           << "num_states:" << v.num_states() << ""
+           << ")"
+           ;
+        return os;
+}
+
+// -- size ---------------------------------------------------------------------
+class size {
+public:
+        static size Bits(uint64_t bits) { return size(bits); }
+        static size Bytes(uint64_t bytes) { return Bits(bytes*8); }
+
+        size() : bits_(0) {}
+
+        uint64_t bits() const { return bits_; }
+        uint64_t bytes() const { return bits() / 8; }
+private:
+        explicit size(uint64_t s) : bits_(s) {}
+        uint64_t bits_;
+};
+
+inline bool operator== (size const &lhs, size const &rhs) {
+        return lhs.bits() == rhs.bits();
+}
+inline bool operator< (size const &lhs, size const &rhs) {
+        return lhs.bits() < rhs.bits();
+}
+
+inline bool operator!= (size const &lhs, size const &rhs) {
+        return !(lhs == rhs);
+}
+inline bool operator> (size const &lhs, size const &rhs) {
+        return rhs < lhs;
+}
+
+inline bool operator<= (size const &lhs, size const &rhs) {
+        return !(rhs < lhs);
+}
+inline bool operator>= (size const &lhs, size const &rhs) {
+        return !(lhs < rhs);
+}
+
+inline std::ostream& operator<< (std::ostream &os, size const& v) {
+        return os << v.bits() << " bits";
+}
+
+// -- value_format -------------------------------------------------------------
 class value_format {
 public:
         // -- constructors -----------------------------------------------------
@@ -120,9 +372,29 @@ public:
 
         // --- numeric limits ---
         int min_value() const {
+                if (is_integer()) {
+                        if (is_unsigned())
+                                return 0;
+                        return -num_states()/2;
+                }
+                return 0;
         }
 
         int max_value() const {
+                if (is_integer()) {
+                        if (is_unsigned())
+                                return num_states()-1;
+                        return num_states()/2;
+                }
+                return 0;
+        }
+
+        int num_states() const {
+                int ret = 1;
+                for (int i=0; i!=bits(); ++i) {
+                        ret *= 2;
+                }
+                return ret;
         }
 
         // -- open tasks -------------------------------------------------------
@@ -141,7 +413,28 @@ private:
         bool is_integer_;
         bool is_float_;
 };
+inline std::ostream& operator<< (std::ostream& os, signedness const &v) {
+        switch(v) {
+        case signedness::is_unsigned: return os << "unsigned";
+        case signedness::is_signed: return os << "signed";
+        case signedness::is_unspecified: return os << "unspecified";
+        };
+}
+inline std::ostream& operator<< (std::ostream& os, value_format const &v) {
+        return os << v.signedness()
+                  << " "
+                  << (v.is_float()?"float":
+                      v.is_integer()?"int":
+                      "????")
+                  << " : " << v.bits()
+                  << ", min_value: " << v.min_value()
+                  << ", max_value: " << v.max_value()
+                  << ", num_states: " << v.num_states()
+                  ;
 
+}
+
+// -- color_channel_format -----------------------------------------------------
 class color_channel_format {
 public:
         color_channel_format() : from_(0), to_(0) {}
@@ -173,8 +466,8 @@ public:
         }
 
         int max_value() const {
-
-                size()
+                //size()
+                return 0;
         }
 private:
         int from_, to_;
@@ -208,6 +501,22 @@ private:
 
 }
 
+template <typename T>
+void print_numeric_limits() {
+        typedef std::numeric_limits<T> nl;
+        std::cout << "[" << typeid(T).name() << "] "
+                  << (nl::is_signed?"signed":"unsigned")
+                  << " "
+                  << (nl::is_iec559?"float":
+                      nl::is_integer?"int":
+                      "????")
+                  << " : " << (sizeof(T)*8)
+                  << ", min_value: " << nl::min()
+                  << ", max_value: " << nl::max()
+                  //<< ", num_states: " << v.num_states()
+                ;
+
+}
 int main() {
         /*
         typedef puffin::bitfield4<8,8,8,8> bf;
@@ -223,6 +532,38 @@ int main() {
         a.values(44,55,66,77);
         std::cout << std::dec << a;
          */
+
+        puffin::value_format int16 = puffin::value_format::uint16_t();
+        std::cout << int16 << std::endl;
+        print_numeric_limits<unsigned short>();
+        std::cout << std::endl;
+
+        /*
+        std::cout << std::endl;
+        puffin::size a = puffin::size::Bytes(4);
+        puffin::size b = puffin::size::Bits(4*8+1);
+        std::cout << "a:" << a << "\n";
+        std::cout << "b:" << b << "\n";
+        std::cout << "a==b:" << (a==b) << "\n";
+        std::cout << "a!=b:" << (a!=b) << "\n";
+        std::cout << "a<b:" << (a<b) << "\n";
+        std::cout << "a>b:" << (a>b) << "\n";
+        std::cout << "a<=b:" << (a<=b) << "\n";
+        std::cout << "a>=b:" << (a>=b) << "\n";
+        */
+
+        puffin::bitmask red_mask  (32, 0x0000FF);
+        puffin::bitmask green_mask(32, 0x00FF00);
+        puffin::bitmask blue_mask (32, 0xFF0000);
+        std::cout << "red_mask:  " << red_mask << std::endl;
+        std::cout << "green_mask:" << green_mask << std::endl;
+        std::cout << "blue_mask: " << blue_mask << std::endl;
+        uint32_t rgb = (11<<16) | (10<<8) | (9);
+        std::cout << "red  :" << (red_mask.extract_value(rgb)) << std::endl;
+        std::cout << "green:" << (green_mask.extract_value(rgb)) << std::endl;
+        std::cout << "blue :" << (blue_mask.extract_value(rgb)) << std::endl;
+
+        return 0;
 
         try {
                 //puffin::Bitmap32 *p = puffin::read_bmp32("dev-assets/bmp/rg_is_xy_2x2x24bit.bmp");
