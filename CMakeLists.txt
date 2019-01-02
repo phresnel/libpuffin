@@ -67,6 +67,7 @@ add_executable(
 
         # src ==================================================================
         src/bmp.cc
+        src/bmp2.cc
         src/main.cc
 
         # src/impl =============================================================
@@ -74,6 +75,7 @@ add_executable(
 
         # include/puffin =======================================================
         include/puffin/bmp.hh
+        include/puffin/bmp2.hh
         include/puffin/color.hh
         include/puffin/coords.hh
         include/puffin/exceptions.hh
@@ -81,13 +83,21 @@ add_executable(
 
         # include/puffin/impl ==================================================
         include/puffin/impl/algorithm.hh
-        include/puffin/impl/bitfield.hh
         include/puffin/impl/bmp_util.hh
         include/puffin/impl/compiler.hh
         include/puffin/impl/contract.hh
         include/puffin/impl/io_util.hh
         include/puffin/impl/sdl_util.hh
         include/puffin/impl/type_traits.hh
+
+        # include/puffin/experimental ==========================================
+        include/puffin/experimental/bitfield.hh
+        include/puffin/experimental/bitmask.hh
+        include/puffin/experimental/color_channel_format.hh
+        include/puffin/experimental/pixel_format.hh
+        include/puffin/experimental/signedness.hh
+        include/puffin/experimental/size.hh
+        include/puffin/experimental/value_format.hh
 )
 
 
