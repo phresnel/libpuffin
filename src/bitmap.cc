@@ -1,4 +1,11 @@
-#include "puffin/bmp2.hh"
+//- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// Usage notes
+// (you can find implementer's not at the bottom of this file).
+//- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+//
+//- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+#include "puffin/bitmap.hh"
 #include "puffin/exceptions.hh"
 #include "puffin/impl/io_util.hh"
 #include <fstream>
@@ -671,3 +678,47 @@ Bitmap *read_bmp(std::string const &filename) {
 }
 
 }
+
+//- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// Implementer's notes.
+//- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+//
+// On "pixel-endianness"
+// ------------------------
+//
+// Given a 4-byte chunk of pixel data, the pixel value with the smallest
+// x-coordinate is left-most when read unaltered from a BMP file.
+//
+// This is sub-optimal, as this imposes an additional subtraction
+// (yes, I was tempted to write "imposes subtraction addition", but
+// I dislike comment humor - irony is alright, tho.)
+//
+// Now for an explanation:
+//
+// Given
+//
+//    chunk size: 16 bits
+//    pixel size:  4 bist,
+//
+// we get this layout and pixel equations:
+//
+//         p0   p1   p2   p3
+//        [1111 0110 0010 0000]
+//
+//        p0 =  (chunk>>12) & 1111b = (chunk>>(16-4 - 0*4)) & 1111b
+//        p1 =  (chunk>> 8) & 1111b = (chunk>>(16-4 - 1*4)) & 1111b
+//        p2 =  (chunk>> 4) & 1111b = (chunk>>(16-4 - 2*4)) & 1111b
+//        p3 =  (chunk>> 0) & 1111b = (chunk>>(16-4 - 3*4)) & 1111b.
+//
+// But with "pixel-endianness" flipped, the layout and equations
+//
+//         p3   p2   p1   p0
+//        [0000 0010 0110 1111]
+//
+//        p0 =  (chunk>> 0) & 1111b = (chunk>>(0*4)) & 1111b
+//        p1 =  (chunk>> 4) & 1111b = (chunk>>(1*4)) & 1111b
+//        p2 =  (chunk>> 8) & 1111b = (chunk>>(2*4)) & 1111b
+//        p3 =  (chunk>>12) & 1111b = (chunk>>(3*4)) & 1111b
+//
+// spare us a confusing shift and a subtraction.
+//- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

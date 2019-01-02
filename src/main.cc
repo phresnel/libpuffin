@@ -1,5 +1,5 @@
 #include "puffin/impl/sdl_util.hh"
-#include "puffin/bmp2.hh"
+#include "puffin/bitmap.hh"
 #include "puffin/image.hh"
 
 #include <iostream>

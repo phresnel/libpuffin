@@ -66,16 +66,11 @@ add_executable(
         puffin
 
         # src ==================================================================
-        src/bmp.cc
-        src/bmp2.cc
+        src/bitmap.cc
         src/main.cc
 
-        # src/impl =============================================================
-        src/impl/bmp_util.cc
-
         # include/puffin =======================================================
-        include/puffin/bmp.hh
-        include/puffin/bmp2.hh
+        include/puffin/bitmap.hh
         include/puffin/color.hh
         include/puffin/coords.hh
         include/puffin/exceptions.hh
@@ -83,7 +78,6 @@ add_executable(
 
         # include/puffin/impl ==================================================
         include/puffin/impl/algorithm.hh
-        include/puffin/impl/bmp_util.hh
         include/puffin/impl/compiler.hh
         include/puffin/impl/contract.hh
         include/puffin/impl/io_util.hh
