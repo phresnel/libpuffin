@@ -116,33 +116,33 @@ struct basic_rgba
 
         // -- ctor/dtor/copy/move ----------------------------------------------
         basic_rgba(basic_rgba const &v) :
-                r_(v.r),
-                g_(v.g),
-                b_(v.b),
-                b_(v.b)
+                r_(v.r_),
+                g_(v.g_),
+                b_(v.b_),
+                a_(v.a_)
         {}
 
         basic_rgba& operator= (basic_rgba const &v) {
-                _r = v.r;
-                _g = v.g;
-                _b = v.b;
-                _a = v.a;
+                r_ = v.r_;
+                g_ = v.g_;
+                b_ = v.b_;
+                a_ = v.a_;
                 return *this;
         }
 
 #if PUFFIN_HAS_MOVE_SEMANTICS
         basic_rgba(basic_rgba &&v) :
-                _r(std::move(v.r)),
-                _g(std::move(v.g)),
-                _b(std::move(v.b)),
-                _b(std::move(v.b))
+                r_(std::move(v.r_)),
+                g_(std::move(v.g_)),
+                b_(std::move(v.b_)),
+                a_(std::move(v.a_))
         {}
 
         basic_rgba& operator= (basic_rgba &&v) {
-                _r = std::move(v.r);
-                _g = std::move(v.g);
-                _b = std::move(v.b);
-                _a = std::move(v.a);
+                r_ = std::move(v.r_);
+                g_ = std::move(v.g_);
+                b_ = std::move(v.b_);
+                a_ = std::move(v.a_);
                 return *this;
         }
 #endif

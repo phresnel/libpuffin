@@ -17,6 +17,8 @@
 
 namespace puffin {
 
+namespace impl { struct Bitmap; }
+
 class Bitmap /* final */ {
 public:
         Bitmap(std::istream &);
@@ -39,9 +41,7 @@ private:
         Bitmap(Bitmap &&); // TODO: Define a public move-ctor
         Bitmap& operator= (Bitmap &&); // TODO: Define a public move-assgnmt
 #endif
-
-        class Impl;
-        Impl* impl_;
+        impl::Bitmap *impl_;
 };
 
 Bitmap* read_bmp(std::string const &filename);

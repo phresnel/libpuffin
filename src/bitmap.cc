@@ -168,26 +168,6 @@ std::ostream& operator<< (std::ostream &os, BitmapInfoHeader const &v) {
 
 
 struct BitmapColorTable {
-        struct Entry {
-                uint8_t blue;
-                uint8_t green;
-                uint8_t red;
-                uint8_t reserved;
-
-                Entry() : blue(0), green(0), red(0), reserved(0) {}
-
-                Entry(std::istream &f) {
-                        reset(f);
-                }
-
-                void reset(std::istream &f) {
-                        blue = impl::read_uint8_le(f);
-                        green = impl::read_uint8_le(f);
-                        red = impl::read_uint8_le(f);
-                        reserved = impl::read_uint8_le(f);
-                }
-        };
-
         BitmapColorTable() {}
 
         BitmapColorTable(BitmapInfoHeader const &info, std::istream &f) :
@@ -197,15 +177,15 @@ struct BitmapColorTable {
                 entries_ = readEntries(info, f);
         }
 
-        Entry operator[](int i) const {
+        Color32 operator[](int i) const {
                 return entries_[i];
         }
 
-        Entry at(int i) const {
+        Color32 at(int i) const {
                 return entries_.at(i);
         }
 
-        std::vector<Entry>::size_type size() const {
+        std::vector<Color32>::size_type size() const {
                 return entries_.size();
         }
 
@@ -214,9 +194,9 @@ struct BitmapColorTable {
         }
 
 private:
-        std::vector<Entry> entries_;
+        std::vector<Color32> entries_;
 
-        static std::vector<Entry> readEntries(
+        static std::vector<Color32> readEntries(
                 BitmapInfoHeader const &info,
                 std::istream &f
         ) {
@@ -226,21 +206,24 @@ private:
                                        info.bitsPerPixel == 4 ? 16 :
                                        info.bitsPerPixel == 8 ? 256 : 0;
 
-                std::vector<Entry> ret;
+                std::vector<Color32> ret;
                 ret.reserve(numColors);
                 // TODO: Probably need to rework the table size determination
                 for (unsigned int i = 0; i < numColors; ++i) {
-                        ret.push_back(Entry{f});
+                        const uint8_t blue = impl::read_uint8_le(f),
+                                      green = impl::read_uint8_le(f),
+                                      red = impl::read_uint8_le(f),
+                                      reserved = impl::read_uint8_le(f);
+                        ret.push_back(Color32(red, green, blue));
                 }
                 return ret;
         }
 };
 inline
-std::ostream& operator<< (std::ostream &os, BitmapColorTable::Entry const &v) {
-        return os << "[" << std::setw(3) << (unsigned int)v.red
-                  << "|" << std::setw(3) << (unsigned int)v.green
-                  << "|" << std::setw(3) << (unsigned int)v.blue
-                  << "|" << std::setw(3) << (unsigned int)v.reserved
+std::ostream& operator<< (std::ostream &os, Color32 const &v) {
+        return os << "[" << std::setw(3) << (unsigned int)v.r()
+                  << "|" << std::setw(3) << (unsigned int)v.g()
+                  << "|" << std::setw(3) << (unsigned int)v.b()
                   << "]";
 }
 inline
@@ -317,7 +300,7 @@ struct BitmapRowData {
 
                         // TODO: make chunk-type more generic.
                         const chunk_type chunk =
-                                read_bytes_to_uint64_le(f, bytes_per_chunk) >>
+                                read_bytes_to_uint32_le(f, bytes_per_chunk) >>
                                 nonsignificant_bits;
 
                         // Flip the order of pixels in this chunk (which will
@@ -349,28 +332,9 @@ struct BitmapRowData {
                         next_mul4 = 4U*((bytes_read+3U)/4U),
                         pad_bytes = next_mul4 - bytes_read;
                 f.ignore(pad_bytes);
-
-                b_mask = 0xFF;
-                b_shift = 16;
-                g_mask = 0xFF;
-                g_shift = 8;
-                r_mask = 0xFF;
-                r_shift = 0;
         }
 
-        Color32 getColor32 (int x) const {
-                const uint32_t
-                        chunk_index = x_to_chunk_index(x),
-                        chunk_ofs   = x_to_chunk_offset(x),
-                        chunk = chunks_[chunk_index],
-                        packed = extract_pixel(chunk, chunk_ofs);
-                const uint32_t b = (packed >> b_shift) & b_mask;
-                const uint32_t g = (packed >> g_shift) & g_mask;
-                const uint32_t r = (packed >> r_shift) & r_mask;
-                return Color32(r, g, b);
-        }
-
-        int getPaletted (int x) const {
+        uint32_t get32 (int x) const {
                 const uint32_t
                         chunk_index = x_to_chunk_index(x),
                         chunk_ofs   = x_to_chunk_offset(x),
@@ -389,10 +353,6 @@ private:
 
         uint32_t width_;
         container_type chunks_;
-
-        uint32_t b_shift, b_mask;
-        uint32_t g_shift, g_mask;
-        uint32_t r_shift, r_mask;
 
         // -- functions ------------------------------------------------
         uint32_t width_to_chunk_count(uint32_t x) const {
@@ -467,6 +427,7 @@ struct BitmapImageData {
                         }
                 }
                 width_ = infoHeader.width;
+
         }
 
         bool empty() const {
@@ -481,12 +442,8 @@ struct BitmapImageData {
                 return rows_.size();
         }
 
-        Color32 color32(int x, int y) const {
-                return rows_[y].getColor32(x);
-        }
-
-        int paletted(int x, int y) const {
-                return rows_[y].getPaletted(x);
+        uint32_t get32(int x, int y) const {
+                return rows_[y].get32(x);
         }
 
 private:
@@ -502,7 +459,6 @@ private:
         }
 };
 
-template <typename RowType>
 inline
 std::ostream& operator<< (std::ostream &os, BitmapImageData const &data) {
         return os << "BitmapImageData(...)";
@@ -525,16 +481,9 @@ std::ostream& operator<< (std::ostream &os, BitmapImageData const &data) {
         */
 }
 
-
-
-}; }
-
-
-namespace puffin {
-// -- class Bitmap::Impl -------------------------------------------------------
-class Bitmap::Impl {
+struct Bitmap {
 public:
-        Impl(std::istream &f) {
+        Bitmap(std::istream &f) {
                 header_.reset(f);
                 const auto headerPos = f.tellg();
                 infoHeader_.reset(f);
@@ -543,6 +492,13 @@ public:
                 colorTable_.reset(infoHeader_, f);
                 colorMask_.reset(infoHeader_, f);
                 imageData_.reset(header_, infoHeader_, f);
+
+                b_mask_ = 0xFF;
+                b_shift_ = 16;
+                g_mask_ = 0xFF;
+                g_shift_ = 8;
+                r_mask_ = 0xFF;
+                r_shift_ = 0;
         }
 
         int width() const { return infoHeader_.width; }
@@ -567,12 +523,15 @@ public:
         }
 
         Color32 get32(int x, int y) const {
+                if (x<0 || x>=width() || y<0 || y>=height()) {
+                        return Color32();
+                }
+
+                const uint32_t raw = imageData_.get32(x, y);
                 if (is_rgb()) {
-                        return imageData_.color32(x, y);
+                        return rawToColor32(raw);
                 } else if(is_paletted()) {
-                        const int pal = imageData_.paletted(x, y);
-                        const impl::BitmapColorTable::Entry entry = colorTable_[pal];
-                        return Color32(entry.red, entry.green, entry.blue);
+                        return colorTable_[raw];
                 } else {
                         return Color32();
                 }
@@ -587,19 +546,19 @@ public:
                         throw std::logic_error(
                                 "BitmapImageData.at32(): y out of range");
                 }
+
+                const uint32_t raw = imageData_.get32(x, y);
                 if (is_rgb()) {
-                        return imageData_.color32(x, y);
+                        return rawToColor32(raw);
                 } else if(is_paletted()) {
-                        const int pal = imageData_.paletted(x, y);
-                        const impl::BitmapColorTable::Entry entry = colorTable_.at(pal);
-                        return Color32(entry.red, entry.green, entry.blue);
+                        return colorTable_.at(raw);
                 } else {
-                        return Color32();
+                        throw std::runtime_error("Neither paletted, nor RGB");
                 }
         }
 
         friend
-        std::ostream& operator<< (std::ostream &os, Impl const &v) {
+        std::ostream& operator<< (std::ostream &os, Bitmap const &v) {
                 os << v.header_;
                 os << v.infoHeader_;
                 if (true) {
@@ -623,11 +582,31 @@ private:
         impl::BitmapColorTable colorTable_;
         impl::BitmapColorMasks colorMask_;
         impl::BitmapImageData  imageData_;
+
+        uint32_t b_shift_, b_mask_;
+        uint32_t g_shift_, g_mask_;
+        uint32_t r_shift_, r_mask_;
+
+        Color32 rawToColor32(uint32_t raw) const {
+                const uint8_t
+                        b = static_cast<uint8_t>((raw >> b_shift_) & b_mask_),
+                        g = static_cast<uint8_t>((raw >> g_shift_) & g_mask_),
+                        r = static_cast<uint8_t>((raw >> r_shift_) & r_mask_)
+                ;
+                return Color32(r, g, b);
+        }
 };
+
+
+
+} }
+
+
+namespace puffin {
 
 // -- class Bitmap -------------------------------------------------------------
 Bitmap::Bitmap(std::istream &f) :
-        impl_(new Impl(f))
+        impl_(new impl::Bitmap(f))
 {
         std::cout << *impl_;
 }
@@ -667,8 +646,6 @@ Color32 Bitmap::at(int x, int y) const {
 
 // -- read_bmp() ---------------------------------------------------------------
 Bitmap *read_bmp(std::string const &filename) {
-        using namespace impl;
-
         std::ifstream f(filename, std::ios::binary);
         if (!f.is_open())
                 throw exceptions::file_not_found(filename);
