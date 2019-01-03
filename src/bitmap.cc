@@ -270,93 +270,25 @@ std::ostream& operator<< (std::ostream &os, BitmapColorMasks const &v) {
                   << "}\n";
 }
 
-
-struct BitmapRowData {
-        // -- types ----------------------------------------------------
-        typedef uint32_t chunk_type;
-        typedef std::vector<chunk_type> container_type;
-
-        // -- members --------------------------------------------------
-        BitmapRowData() : width_(0) { }
-
-        BitmapRowData(BitmapInfoHeader const &infoHeader, std::istream &f) {
-                reset(infoHeader, f);
-        }
-
-        void reset(
-                BitmapInfoHeader const &infoHeader,
-                std::istream &f
-        ) {
-                width_ = infoHeader.width;
-
-                const uint32_t chunk_width = infoHeader.bitsPerPixel == 24 ? 24 : 32;
-                pixel_width = infoHeader.bitsPerPixel;
-
-                pixels_per_chunk = chunk_width / pixel_width;
-                bytes_per_chunk = chunk_width / 8;
-                pixel_mask = (1U << pixel_width) - 1U; // TODO: This may fail for large types
-                nonsignificant_bits = chunk_width % pixel_width;
-
-                const uint32_t numChunks = width_to_chunk_count(infoHeader.width);
-                chunks_.clear();
-                chunks_.reserve(numChunks);
-                for (uint32_t i=0U; i!=numChunks; ++i) {
-
-                        // TODO: make chunk-type more generic.
-                        const chunk_type chunk =
-                                read_bytes_to_uint32_le(f, bytes_per_chunk) >>
-                                nonsignificant_bits;
-
-                        // Flip the order of pixels in this chunk (which will
-                        //  result in a more trivial extract_pixel() function):
-                        chunk_type flipped = 0U;
-                        for (uint32_t j=0U; j!=pixels_per_chunk; ++j) {
-                                const chunk_type pixel = extract_pixel(chunk, j);
-                                flipped = (flipped<<pixel_width) | pixel;
-                        }
-                        chunks_.push_back(flipped);
-                }
-
-                // Round up to multiple of 4.
-                // Example:
-                //   2 chunks, 3 bytes each -> 6 bytes read
-                //   Need to round 6 to 8 (=2*4).
-                //
-                //   Attempt 1)   4*(6/4) = 4  -> no.
-                //   Attempt 2)   4*((6+3)/4) = 8 -> maybe.
-                //   round(x)_m = m*((x+m-1)/m)
-                //
-                //   Tests:
-                //       round(7)_4 = 4*((7+3)/4) = 8
-                //       round(8)_4 = 4*((8+3)/4) = 8
-                //       round(9)_4 = 4*((9+3)/4) = 12
-                // TODO: Make a reusable function of round().
-                const uint32_t
-                        bytes_read = numChunks * bytes_per_chunk,
-                        next_mul4 = 4U*((bytes_read+3U)/4U),
-                        pad_bytes = next_mul4 - bytes_read;
-                f.ignore(pad_bytes);
-        }
-
-        uint32_t get32 (int x) const {
-                const uint32_t
-                        chunk_index = x_to_chunk_index(x),
-                        chunk_ofs   = x_to_chunk_offset(x),
-                        chunk = chunks_[chunk_index],
-                        value = extract_pixel(chunk, chunk_ofs);
-                return value;
-        }
-
-private:
-        // -- data -----------------------------------------------------
+struct ChunkLayout {
+        uint32_t chunk_width;
+        uint32_t pixel_width;
         uint32_t pixels_per_chunk;
         uint32_t bytes_per_chunk;
-        uint32_t pixel_width;
         uint32_t pixel_mask;
         uint32_t nonsignificant_bits;
 
-        uint32_t width_;
-        container_type chunks_;
+        ChunkLayout() {}
+
+        ChunkLayout(BitmapInfoHeader const &infoHeader) :
+                chunk_width(infoHeader.bitsPerPixel == 24 ? 24 : 32),
+                pixel_width(infoHeader.bitsPerPixel),
+                pixels_per_chunk(chunk_width / pixel_width),
+                bytes_per_chunk(chunk_width / 8),
+                pixel_mask((1U << pixel_width) - 1U), // TODO: This may fail for large types
+                nonsignificant_bits(chunk_width % pixel_width)
+        { }
+
 
         // -- functions ------------------------------------------------
         uint32_t width_to_chunk_count(uint32_t x) const {
@@ -376,7 +308,7 @@ private:
         }
 
         template <typename ChunkT>
-        ChunkT extract_pixel(ChunkT chunk, uint32_t ofs) const {
+        ChunkT extract_value(ChunkT chunk, uint32_t ofs) const {
                 const ChunkT
                         rshift = ofs * pixel_width,
                         value = (chunk >> rshift) & pixel_mask;
@@ -389,7 +321,109 @@ private:
                 //        value = (chunk >> rshift) & pixel_mask;
                 // return value;
         }
+
+        template <typename ChunkT>
+        ChunkT write_value(ChunkT chunk, uint32_t ofs, ChunkT val) const {
+                const ChunkT
+                        rshift = ofs * pixel_width,
+                        value = (chunk & pixel_mask) << rshift;
+                return value;
+        }
 };
+
+
+struct BitmapRowData {
+        // -- types ----------------------------------------------------
+        typedef uint32_t chunk_type;
+        typedef std::vector<chunk_type> container_type;
+
+        // -- members --------------------------------------------------
+        BitmapRowData() : width_(0) { }
+
+        BitmapRowData(BitmapInfoHeader const &infoHeader, std::istream &f) {
+                reset(infoHeader, f);
+        }
+
+        void reset(
+                BitmapInfoHeader const &infoHeader,
+                std::istream &f
+        ) {
+                width_ = infoHeader.width;
+                layout_ = ChunkLayout(infoHeader);
+                const uint32_t startPos = f.tellg();
+                const uint32_t chunk_width = infoHeader.bitsPerPixel == 24 ? 24 : 32;
+
+                chunks_.clear();
+
+                const uint32_t numChunks = layout_.width_to_chunk_count(infoHeader.width);
+                if (infoHeader.compression != BI_RGB) {
+                        chunks_.resize(numChunks);
+                        return;
+                }
+
+                chunks_.reserve(numChunks);
+                for (uint32_t i = 0U; i != numChunks; ++i) {
+                        // TODO: make chunk-type more generic.
+                        const chunk_type chunk =
+                                read_bytes_to_uint32_le(f, layout_.bytes_per_chunk) >> layout_.nonsignificant_bits;
+                        // Flip the order of pixels in this chunk (which will
+                        //  result in a more trivial extract_value() function):
+                        chunk_type flipped = 0U;
+                        for (uint32_t j=0U; j!=layout_.pixels_per_chunk; ++j) {
+                                const chunk_type pixel = layout_.extract_value(chunk, j);
+                                flipped = (flipped << layout_.pixel_width) | pixel;
+                        }
+                        chunks_.push_back(flipped);
+                }
+
+                // Round up to multiple of 4.
+                // Example:
+                //   2 chunks, 3 bytes each -> 6 bytes read
+                //   Need to round 6 to 8 (=2*4).
+                //
+                //   Attempt 1)   4*(6/4) = 4  -> no.
+                //   Attempt 2)   4*((6+3)/4) = 8 -> maybe.
+                //   round(x)_m = m*((x+m-1)/m)
+                //
+                //   Tests:
+                //       round(7)_4 = 4*((7+3)/4) = 8
+                //       round(8)_4 = 4*((8+3)/4) = 8
+                //       round(9)_4 = 4*((9+3)/4) = 12
+                // TODO: Make a reusable function of round().
+                const uint32_t
+                        endPos = f.tellg(),
+                        bytes_read = endPos - startPos,
+                        next_mul4 = 4U*((bytes_read+3U)/4U),
+                        pad_bytes = next_mul4 - bytes_read;
+                f.ignore(pad_bytes);
+        }
+
+        uint32_t get32 (int x) const {
+                const uint32_t
+                        chunk_index = layout_.x_to_chunk_index(x),
+                        chunk_ofs   = layout_.x_to_chunk_offset(x),
+                        chunk = chunks_[chunk_index],
+                        value = layout_.extract_value(chunk, chunk_ofs);
+                return value;
+        }
+
+        void set32 (int x, uint32_t value) {
+                const uint32_t
+                        chunk_index = layout_.x_to_chunk_index(x),
+                        chunk_ofs   = layout_.x_to_chunk_offset(x),
+                        chunk_old = chunks_[chunk_index],
+                        chunk_new = layout_.write_value(chunk_old, chunk_ofs, value);
+                chunks_[chunk_index] = chunk_new;
+        }
+
+private:
+        // -- data -----------------------------------------------------
+        ChunkLayout layout_;
+
+        uint32_t width_;
+        container_type chunks_;
+};
+
 
 struct BitmapImageData {
         // -- types ----------------------------------------------------
@@ -430,6 +464,29 @@ struct BitmapImageData {
                                 rows_.emplace_back(infoHeader, f);
                         }
                 }
+
+                if (infoHeader.compression == BI_RLE4) {
+                        int x = 0, y = 0;
+                        const uint32_t startPos = f.tellg();
+
+                        enum { encoded, absolute } mode;
+                        uint8_t b = read_uint8_le(f);
+                        if (b == 0) {
+                                mode = absolute;
+                        } else {
+                                mode = encoded;
+                        }
+
+                        if (mode == absolute) {
+                                const uint8_t numIndices = read_uint8_le(f);
+                                for (int i=0; i<numIndices; ++i) {
+
+                                }
+                        }
+
+                        const uint32_t endPos = f.tellg();
+                }
+
                 width_ = infoHeader.width;
 
         }
@@ -448,6 +505,10 @@ struct BitmapImageData {
 
         uint32_t get32(int x, int y) const {
                 return rows_[y].get32(x);
+        }
+
+        void set32(int x, int y, uint32_t val) {
+                rows_[y].set32(x, val);
         }
 
 private:
@@ -638,9 +699,10 @@ private:
                 f.seekg(headerPos);
                 switch (infoHeader_.compression) {
                 case BI_RGB:
-                        break;
-                case BI_RLE8:
                 case BI_RLE4:
+                        break;
+
+                case BI_RLE8:
                 case BI_BITFIELDS:
                 case BI_JPEG:
                 case BI_PNG:
