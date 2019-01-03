@@ -484,6 +484,7 @@ std::ostream& operator<< (std::ostream &os, BitmapImageData const &data) {
 struct Bitmap {
 public:
         Bitmap(std::istream &f) {
+                // load bmp file
                 header_.reset(f);
                 const auto headerPos = f.tellg();
                 infoHeader_.reset(f);
@@ -493,12 +494,57 @@ public:
                 colorMask_.reset(infoHeader_, f);
                 imageData_.reset(header_, infoHeader_, f);
 
-                b_mask_ = 0xFF;
-                b_shift_ = 16;
-                g_mask_ = 0xFF;
-                g_shift_ = 8;
-                r_mask_ = 0xFF;
-                r_shift_ = 0;
+                // set bitmasks
+                switch (bpp()) {
+                case 24:
+                        a_mask_ = 0x0;
+                        b_mask_ = 0xFF;
+                        g_mask_ = 0xFF;
+                        r_mask_ = 0xFF;
+                        a_shift_ = 0;
+                        b_shift_ = 16;
+                        g_shift_ = 8;
+                        r_shift_ = 0;
+                        break;
+                case 32:
+                        a_mask_ = 0xFF;
+                        b_mask_ = 0xFF;
+                        g_mask_ = 0xFF;
+                        r_mask_ = 0xFF;
+                        a_shift_ = 24;
+                        b_shift_ = 16;
+                        g_shift_ = 8;
+                        r_shift_ = 0;
+                        break;
+                default:
+                        a_mask_ = 0x0;
+                        b_mask_ = 0x0;
+                        g_mask_ = 0x0;
+                        r_mask_ = 0x0;
+                        a_shift_ = 0;
+                        b_shift_ = 0;
+                        g_shift_ = 0;
+                        r_shift_ = 0;
+                        break;
+                }
+
+                // detect alpha (non-standard; in ICO files, transparency is
+                // defined if any "reserved" value is non-zero)
+                has_alpha_ = false;
+                if (is_rgb()) {
+                        for (int y = 0; y < height(); ++y) {
+                                for (int x = 0; x < width(); ++x) {
+                                        const uint32_t raw = imageData_.get32(x, y);
+                                        const Color32 col = rawToColor32(raw);
+                                        if (col.a() != 0) {
+                                                has_alpha_ = true;
+                                                break;
+                                        }
+                                }
+                                if (has_alpha_)
+                                        break;
+                        }
+                }
         }
 
         int width() const { return infoHeader_.width; }
@@ -522,6 +568,10 @@ public:
                 return !is_paletted();
         }
 
+        bool has_alpha() const {
+                return has_alpha_;
+        }
+
         Color32 get32(int x, int y) const {
                 if (x<0 || x>=width() || y<0 || y>=height()) {
                         return Color32();
@@ -529,7 +579,9 @@ public:
 
                 const uint32_t raw = imageData_.get32(x, y);
                 if (is_rgb()) {
-                        return rawToColor32(raw);
+                        Color32 col = rawToColor32(raw);
+                        col.a(has_alpha() ? col.a() : 255);
+                        return col;
                 } else if(is_paletted()) {
                         return colorTable_[raw];
                 } else {
@@ -573,6 +625,9 @@ public:
                 os << "ImageData:"
                    << (v.imageData_.empty() ? "no" : "yes")
                    << "\n";
+                os << "rgb:" << (v.is_rgb()?"yes":"no") << "\n"
+                   << "paletted:" << (v.is_paletted()?"yes":"no") << "\n"
+                   << "alpha:" << (v.has_alpha()?"yes":"no") << "\n";
                 return os;
         }
 private:
@@ -583,17 +638,21 @@ private:
         impl::BitmapColorMasks colorMask_;
         impl::BitmapImageData  imageData_;
 
+        bool has_alpha_;
+
         uint32_t b_shift_, b_mask_;
         uint32_t g_shift_, g_mask_;
         uint32_t r_shift_, r_mask_;
+        uint32_t a_shift_, a_mask_;
 
         Color32 rawToColor32(uint32_t raw) const {
                 const uint8_t
                         b = static_cast<uint8_t>((raw >> b_shift_) & b_mask_),
                         g = static_cast<uint8_t>((raw >> g_shift_) & g_mask_),
-                        r = static_cast<uint8_t>((raw >> r_shift_) & r_mask_)
+                        r = static_cast<uint8_t>((raw >> r_shift_) & r_mask_),
+                        a = static_cast<uint8_t>((raw >> a_shift_) & a_mask_)
                 ;
-                return Color32(r, g, b);
+                return Color32(r, g, b, a);
         }
 };
 
@@ -633,6 +692,10 @@ bool Bitmap::is_paletted() const {
 
 bool Bitmap::is_rgb() const {
         return impl_->is_rgb();
+}
+
+bool Bitmap::has_alpha() const {
+        return impl_->has_alpha();
 }
 
 Color32 Bitmap::operator()(int x, int y) const {

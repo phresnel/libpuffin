@@ -15,7 +15,8 @@
 int main() {
         try {
                 //puffin::Bitmap32 *p = puffin::read_bmp32("dev-assets/bmp/rg_is_xy_2x2x24bit.bmp");
-                puffin::Bitmap *p = puffin::read_bmp("dev-assets/bmp/puffin_24bit.bmp");
+                //puffin::Bitmap *p = puffin::read_bmp("dev-assets/bmp/puffin_24bit.bmp");
+                puffin::Bitmap *p = puffin::read_bmp("dev-assets/bmpsuite-2.5/g/pal4gs.bmp");
                 puffin::impl::Sdl sdl;
                 puffin::impl::SdlRenderer sdlRenderer = sdl.createRenderer(p->width(), p->height());
                 for (int y=0; y!=p->height(); ++y) {

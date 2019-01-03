@@ -30,6 +30,7 @@ public:
         int bpp() const;
         bool is_paletted() const;
         bool is_rgb() const;
+        bool has_alpha() const;
 
         Color32 operator() (int x, int y) const;
         Color32 at (int x, int y) const;
