@@ -280,9 +280,18 @@ struct ChunkLayout {
 
         ChunkLayout() {}
 
-        ChunkLayout(BitmapInfoHeader const &infoHeader) :
+        explicit ChunkLayout(BitmapInfoHeader const &infoHeader) :
                 chunk_width(infoHeader.bitsPerPixel == 24 ? 24 : 32),
                 pixel_width(infoHeader.bitsPerPixel),
+                pixels_per_chunk(chunk_width / pixel_width),
+                bytes_per_chunk(chunk_width / 8),
+                pixel_mask((1U << pixel_width) - 1U), // TODO: This may fail for large types
+                nonsignificant_bits(chunk_width % pixel_width)
+        { }
+
+        ChunkLayout(uint32_t chunk_width, uint32_t pixel_width) :
+                chunk_width(chunk_width),
+                pixel_width(pixel_width),
                 pixels_per_chunk(chunk_width / pixel_width),
                 bytes_per_chunk(chunk_width / 8),
                 pixel_mask((1U << pixel_width) - 1U), // TODO: This may fail for large types
@@ -310,7 +319,7 @@ struct ChunkLayout {
         template <typename ChunkT>
         ChunkT extract_value(ChunkT chunk, uint32_t ofs) const {
                 const ChunkT
-                        rshift = ofs * pixel_width,
+                        rshift = static_cast<ChunkT>(ofs * pixel_width),
                         value = (chunk >> rshift) & pixel_mask;
                 return value;
 
@@ -325,12 +334,14 @@ struct ChunkLayout {
         template <typename ChunkT>
         ChunkT write_value(ChunkT chunk, uint32_t ofs, ChunkT val) const {
                 const ChunkT
-                        rshift = ofs * pixel_width,
-                        value = (chunk & pixel_mask) << rshift;
-                return value;
+                        rshift = static_cast<uint32_t>(ofs * pixel_width),
+                        keep_mask = (~pixel_mask) << rshift,
+                        bits_kept = chunk & keep_mask,
+                        bits_renewed = (val & pixel_mask) << rshift,
+                        new_chunk = bits_kept & bits_renewed;
+                return new_chunk;
         }
 };
-
 
 struct BitmapRowData {
         // -- types ----------------------------------------------------
@@ -350,7 +361,7 @@ struct BitmapRowData {
         ) {
                 width_ = infoHeader.width;
                 layout_ = ChunkLayout(infoHeader);
-                const uint32_t startPos = f.tellg();
+                const std::ostream::pos_type startPos = f.tellg();
                 const uint32_t chunk_width = infoHeader.bitsPerPixel == 24 ? 24 : 32;
 
                 chunks_.clear();
@@ -390,10 +401,10 @@ struct BitmapRowData {
                 //       round(8)_4 = 4*((8+3)/4) = 8
                 //       round(9)_4 = 4*((9+3)/4) = 12
                 // TODO: Make a reusable function of round().
-                const uint32_t
+                const std::ostream::pos_type
                         endPos = f.tellg(),
                         bytes_read = endPos - startPos,
-                        next_mul4 = 4U*((bytes_read+3U)/4U),
+                        next_mul4 = 4U*((bytes_read + std::ostream::pos_type(3U))/4U),
                         pad_bytes = next_mul4 - bytes_read;
                 f.ignore(pad_bytes);
         }
@@ -466,25 +477,44 @@ struct BitmapImageData {
                 }
 
                 if (infoHeader.compression == BI_RLE4) {
-                        int x = 0, y = 0;
-                        const uint32_t startPos = f.tellg();
+                        const std::ostream::pos_type startPos = f.tellg();
 
-                        enum { encoded, absolute } mode;
-                        uint8_t b = read_uint8_le(f);
-                        if (b == 0) {
-                                mode = absolute;
-                        } else {
-                                mode = encoded;
-                        }
+                        int x = 0;
+                        int y = 0;
 
-                        if (mode == absolute) {
+                        const ChunkLayout ch(8, 4);
+                        const uint8_t mode = read_uint8_le(f);
+                        if (mode == 0) {
+                                // absolute mode
+                                std::cerr << "absolute mode" << std::endl;
                                 const uint8_t numIndices = read_uint8_le(f);
-                                for (int i=0; i<numIndices; ++i) {
+                                for (uint8_t i=0; i<numIndices; i+=ch.pixels_per_chunk) {
+                                        const uint8_t chunk = read_uint8_le(f);
 
+                                        for (unsigned o=0; o!=ch.pixels_per_chunk; ++o) {
+                                                const uint8_t v = ch.extract_value(chunk, o);
+
+                                                if (v > 2) {
+                                                        set32(x, y, v);
+                                                        ++x;
+                                                } else {
+                                                        if (0 == v) {
+                                                                x = 0;
+                                                                ++y;
+                                                        } else if (1 == v) {
+                                                                goto done;
+                                                        } else if (2 == v) {
+                                                                x += read_uint8_le(f);
+                                                                y += read_uint8_le(f);
+                                                        }
+                                                }
+                                        }
                                 }
+                        } else {
+                                std::cerr << "encoded mode not supported" << std::endl;
                         }
-
-                        const uint32_t endPos = f.tellg();
+done:
+                        const std::ostream::pos_type endPos = f.tellg();
                 }
 
                 width_ = infoHeader.width;
