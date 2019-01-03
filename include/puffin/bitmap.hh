@@ -19,10 +19,16 @@ namespace puffin {
 
 namespace impl { struct Bitmap; }
 
-class Bitmap /* final */ {
+class Bitmap {
 public:
         Bitmap(std::istream &);
         ~Bitmap();
+
+        Bitmap(Bitmap const &);
+        Bitmap& operator= (Bitmap const &);
+
+        void reset();
+        void reset(std::istream &);
 
         int width() const;
         int height() const;
@@ -34,18 +40,56 @@ public:
 
         Color32 operator() (int x, int y) const;
         Color32 at (int x, int y) const;
-private:
-        Bitmap(Bitmap const &); // TODO: Define a public copy-ctor
-        Bitmap& operator= (Bitmap const &); // TODO: Define a public copy-assgnmt
 
+        friend std::ostream& operator<< (std::ostream &os, Bitmap const &v);
+
+private:
+        impl::Bitmap *impl_;
+        Bitmap();
 #if PUFFIN_HAS_MOVE_SEMANTICS
         Bitmap(Bitmap &&); // TODO: Define a public move-ctor
         Bitmap& operator= (Bitmap &&); // TODO: Define a public move-assgnmt
 #endif
-        impl::Bitmap *impl_;
 };
 
-Bitmap* read_bmp(std::string const &filename);
+class InvalidBitmap {
+public:
+        InvalidBitmap();
+        InvalidBitmap(std::istream &);
+        ~InvalidBitmap();
+
+        InvalidBitmap(InvalidBitmap const &);
+        InvalidBitmap& operator= (InvalidBitmap const &);
+
+        void reset();
+        void reset(std::istream &);
+        bool partial_reset(std::istream &);
+
+        int width() const;
+        int height() const;
+
+        int bpp() const;
+        bool is_paletted() const;
+        bool is_rgb() const;
+        bool has_alpha() const;
+        bool valid() const;
+
+        Color32 operator() (int x, int y) const;
+        Color32 at (int x, int y) const;
+
+        friend std::ostream& operator<< (std::ostream &, InvalidBitmap const &);
+
+private:
+        impl::Bitmap *impl_;
+#if PUFFIN_HAS_MOVE_SEMANTICS
+        InvalidBitmap(InvalidBitmap &&); // TODO: Define a public move-ctor
+        InvalidBitmap& operator= (InvalidBitmap &&); // TODO: Define a public move-assgnmt
+#endif
+};
+
+
+Bitmap read_bmp(std::string const &filename);
+InvalidBitmap read_invalid_bmp(std::string const &filename);
 }
 
 #endif //BMP2_HH_INCLUDED_20190102

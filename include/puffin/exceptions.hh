@@ -56,6 +56,39 @@ private:
         }
 };
 
+
+// -- unsupported_bitmap_compression -------------------------------------------
+class unsupported_bitmap_compression : public load_image {
+public:
+        explicit unsupported_bitmap_compression(
+                unsigned int v,
+                std::string const &str = ""
+        ) :
+                load_image(fmt_msg(v, str)),
+                compression(v),
+                name(str)
+        { }
+
+        unsigned int compression;
+        std::string name;
+private:
+        unsupported_bitmap_compression(); // delete
+
+        static
+        std::string fmt_msg(unsigned int v, std::string const &str) {
+                std::stringstream ss;
+                ss << "unsupported BitmapCompression with decimal number value "
+                   << v;
+                if (!str.empty()) {
+                        ss << " (name: " << str << ")";
+                }
+                return ss.str();
+        }
+};
+
+
+
+
 } }
 
 #endif //EXCEPTIONS_HH_INCLUDED_20181217

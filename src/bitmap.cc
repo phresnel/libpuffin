@@ -26,19 +26,23 @@ enum BitmapCompression {
         BI_CMYKRLE4 = 0x000D
 };
 inline
-std::ostream& operator<< (std::ostream &os, BitmapCompression bc) {
+std::string to_string(BitmapCompression bc) {
         switch (bc) {
-        case BI_RGB: return os << "BI_RGB";
-        case BI_RLE8: return os << "BI_RLE8";
-        case BI_RLE4: return os << "BI_RLE4";
-        case BI_BITFIELDS: return os << "BI_BITFIELDS";
-        case BI_JPEG: return os << "BI_JPEG";
-        case BI_PNG: return os << "BI_PNG";
-        case BI_CMYK: return os << "BI_CMYK";
-        case BI_CMYKRLE8: return os << "BI_CMYKRLE8";
-        case BI_CMYKRLE4: return os << "BI_CMYKRLE4";
-        default: return os << "<unknown>";
+        case BI_RGB: return "BI_RGB";
+        case BI_RLE8: return "BI_RLE8";
+        case BI_RLE4: return "BI_RLE4";
+        case BI_BITFIELDS: return "BI_BITFIELDS";
+        case BI_JPEG: return "BI_JPEG";
+        case BI_PNG: return "BI_PNG";
+        case BI_CMYK: return "BI_CMYK";
+        case BI_CMYKRLE8: return "BI_CMYKRLE8";
+        case BI_CMYKRLE4: return "BI_CMYKRLE4";
+        default: return "<unknown>";
         }
+}
+inline
+std::ostream& operator<< (std::ostream &os, BitmapCompression bc) {
+        return os << to_string(bc);
 }
 
 
@@ -98,7 +102,7 @@ struct BitmapInfoHeader {
         int32_t height;
         uint16_t planes;
         uint16_t bitsPerPixel;
-        uint32_t compression; // 0 = BI_RGB (none), 1 = BI_RLE8, 2 = BI_RLE4
+        BitmapCompression compression; // 0 = BI_RGB (none), 1 = BI_RLE8, 2 = BI_RLE4
         uint32_t compressedImageSize; // 0 if compression is 0
         uint32_t xPixelsPerMeter;
         uint32_t yPixelsPerMeter;
@@ -114,7 +118,7 @@ struct BitmapInfoHeader {
                 height(0),
                 planes(0),
                 bitsPerPixel(0),
-                compression(0),
+                compression(BI_RGB),
                 compressedImageSize(0),
                 xPixelsPerMeter(0),
                 yPixelsPerMeter(0),
@@ -132,7 +136,7 @@ struct BitmapInfoHeader {
                 height = impl::read_int32_le(f);
                 planes = impl::read_uint16_le(f);
                 bitsPerPixel = impl::read_uint16_le(f);
-                compression = impl::read_uint32_le(f);
+                compression = static_cast<BitmapCompression >(impl::read_uint32_le(f));
                 compressedImageSize = impl::read_uint32_le(f);
                 xPixelsPerMeter = impl::read_uint32_le(f);
                 yPixelsPerMeter = impl::read_uint32_le(f);
@@ -156,7 +160,7 @@ std::ostream& operator<< (std::ostream &os, BitmapInfoHeader const &v) {
                   << "  isBottomUp:" << v.isBottomUp << "\n"
                   << "  planes:" << v.planes << "\n"
                   << "  bitsPerPixel:" << v.bitsPerPixel << "\n"
-                  << "  compression:" << static_cast<BitmapCompression>(v.compression) << "\n"
+                  << "  compression:" << v.compression << "\n"
                   << "  compressedImageSize:" << v.compressedImageSize << "\n"
                   << "  xPixelsPerMeter:" << v.xPixelsPerMeter << "\n"
                   << "  yPixelsPerMeter:" << v.yPixelsPerMeter << "\n"
@@ -483,12 +487,176 @@ std::ostream& operator<< (std::ostream &os, BitmapImageData const &data) {
 
 struct Bitmap {
 public:
+        Bitmap() :
+                filename_(),
+                header_(),
+                infoHeader_(),
+                colorTable_(),
+                colorMask_(),
+                imageData_(),
+
+                has_alpha_(),
+
+                b_shift_(0), b_mask_(0),
+                g_shift_(0), g_mask_(0),
+                r_shift_(0), r_mask_(0),
+                a_shift_(0), a_mask_(0),
+
+                valid_(0)
+        { }
+
         Bitmap(std::istream &f) {
+                reset(f);
+        }
+
+        bool partial_reset(std::istream &f) {
+                return reset(f, false);
+        }
+
+        void reset() {
+                using std::swap;
+                Bitmap tmp;
+                swap(*this, tmp);
+        }
+
+        void reset(std::istream &f) {
+                reset(f, true);
+        }
+
+        int width() const { return infoHeader_.width; }
+        int height() const { return infoHeader_.height; }
+        int bpp() const { return infoHeader_.bitsPerPixel; }
+        bool valid() const {
+                return valid_;
+        }
+
+        bool is_paletted() const {
+                switch (bpp()) {
+                case 1:
+                case 2:
+                case 4:
+                case 8:
+                        return true;
+                default:
+                        return false;
+                }
+        }
+
+        // TODO: is_rgb is not really unambiguous ("not rgb = maybe hsv?")
+        bool is_rgb() const {
+                return !is_paletted();
+        }
+
+        bool has_alpha() const {
+                return has_alpha_;
+        }
+
+        Color32 get32(int x, int y) const {
+                if (x<0 || x>=width() || y<0 || y>=height()) {
+                        return Color32();
+                }
+
+                const uint32_t raw = imageData_.get32(x, y);
+                if (is_rgb()) {
+                        Color32 col = rawToColor32(raw);
+                        col.a(has_alpha() ? col.a() : 255);
+                        return col;
+                } else if(is_paletted()) {
+                        return colorTable_[raw];
+                } else {
+                        return Color32();
+                }
+        }
+
+        Color32 at32(int x, int y) const {
+                // TODO: use puffin exceptions
+                if (x<0 || x>=width()) {
+                        throw std::logic_error(
+                                "BitmapImageData.at32(): x out of range");
+                }
+                if (y<0 || y>=height()) {
+                        throw std::logic_error(
+                                "BitmapImageData.at32(): y out of range");
+                }
+
+                const uint32_t raw = imageData_.get32(x, y);
+                if (is_rgb()) {
+                        return rawToColor32(raw);
+                } else if(is_paletted()) {
+                        return colorTable_.at(raw);
+                } else {
+                        throw std::runtime_error("Neither paletted, nor RGB");
+                }
+        }
+
+        friend
+        std::ostream& operator<< (std::ostream &os, Bitmap const &v) {
+                os << v.header_;
+                os << v.infoHeader_;
+                if (true) {
+                        if (v.colorTable_.empty())
+                                os << "ColorTable:<empty>\n";
+                        else
+                                os << "ColorTable:[...]\n";
+                } else {
+                        os << v.colorTable_;
+                }
+                os << v.colorMask_;
+                os << "ImageData:"
+                   << (v.imageData_.empty() ? "no" : "yes")
+                   << "\n";
+                os << "rgb:" << (v.is_rgb()?"yes":"no") << "\n"
+                   << "paletted:" << (v.is_paletted()?"yes":"no") << "\n"
+                   << "alpha:" << (v.has_alpha()?"yes":"no") << "\n"
+                   << "valid:" << (v.valid()?"yes":"no") << "\n";
+                return os;
+        }
+private:
+        std::string filename_;
+        impl::BitmapHeader header_;
+        impl::BitmapInfoHeader infoHeader_;
+        impl::BitmapColorTable colorTable_;
+        impl::BitmapColorMasks colorMask_;
+        impl::BitmapImageData  imageData_;
+
+        bool has_alpha_;
+
+        uint32_t b_shift_, b_mask_;
+        uint32_t g_shift_, g_mask_;
+        uint32_t r_shift_, r_mask_;
+        uint32_t a_shift_, a_mask_;
+
+        bool valid_;
+
+        bool reset(std::istream &f, bool exceptions) {
+                reset();
+
                 // load bmp file
                 header_.reset(f);
                 const auto headerPos = f.tellg();
                 infoHeader_.reset(f);
                 f.seekg(headerPos);
+                switch (infoHeader_.compression) {
+                case BI_RGB:
+                        break;
+                case BI_RLE8:
+                case BI_RLE4:
+                case BI_BITFIELDS:
+                case BI_JPEG:
+                case BI_PNG:
+                case BI_CMYK:
+                case BI_CMYKRLE8:
+                case BI_CMYKRLE4:
+                default:
+                        if (exceptions) {
+                                throw exceptions::unsupported_bitmap_compression(
+                                        infoHeader_.compression,
+                                        to_string(infoHeader_.compression));
+                        } else {
+                                return false;
+                        }
+                }
+
                 f.seekg(infoHeader_.infoHeaderSize, std::ios_base::cur);
                 colorTable_.reset(infoHeader_, f);
                 colorMask_.reset(infoHeader_, f);
@@ -545,105 +713,10 @@ public:
                                         break;
                         }
                 }
+
+                valid_ = true;
+                return true;
         }
-
-        int width() const { return infoHeader_.width; }
-        int height() const { return infoHeader_.height; }
-
-        int bpp() const { return infoHeader_.bitsPerPixel; }
-
-        bool is_paletted() const {
-                switch (bpp()) {
-                case 1:
-                case 2:
-                case 4:
-                case 8:
-                        return true;
-                default:
-                        return false;
-                }
-        }
-
-        bool is_rgb() const {
-                return !is_paletted();
-        }
-
-        bool has_alpha() const {
-                return has_alpha_;
-        }
-
-        Color32 get32(int x, int y) const {
-                if (x<0 || x>=width() || y<0 || y>=height()) {
-                        return Color32();
-                }
-
-                const uint32_t raw = imageData_.get32(x, y);
-                if (is_rgb()) {
-                        Color32 col = rawToColor32(raw);
-                        col.a(has_alpha() ? col.a() : 255);
-                        return col;
-                } else if(is_paletted()) {
-                        return colorTable_[raw];
-                } else {
-                        return Color32();
-                }
-        }
-
-        Color32 at32(int x, int y) const {
-                if (x<0 || x>=width()) {
-                        throw std::logic_error(
-                                "BitmapImageData.at32(): x out of range");
-                }
-                if (y<0 || y>=height()) {
-                        throw std::logic_error(
-                                "BitmapImageData.at32(): y out of range");
-                }
-
-                const uint32_t raw = imageData_.get32(x, y);
-                if (is_rgb()) {
-                        return rawToColor32(raw);
-                } else if(is_paletted()) {
-                        return colorTable_.at(raw);
-                } else {
-                        throw std::runtime_error("Neither paletted, nor RGB");
-                }
-        }
-
-        friend
-        std::ostream& operator<< (std::ostream &os, Bitmap const &v) {
-                os << v.header_;
-                os << v.infoHeader_;
-                if (true) {
-                        if (v.colorTable_.empty())
-                                os << "ColorTable:<empty>\n";
-                        else
-                                os << "ColorTable:[...]\n";
-                } else {
-                        os << v.colorTable_;
-                }
-                os << v.colorMask_;
-                os << "ImageData:"
-                   << (v.imageData_.empty() ? "no" : "yes")
-                   << "\n";
-                os << "rgb:" << (v.is_rgb()?"yes":"no") << "\n"
-                   << "paletted:" << (v.is_paletted()?"yes":"no") << "\n"
-                   << "alpha:" << (v.has_alpha()?"yes":"no") << "\n";
-                return os;
-        }
-private:
-        std::string filename_;
-        impl::BitmapHeader header_;
-        impl::BitmapInfoHeader infoHeader_;
-        impl::BitmapColorTable colorTable_;
-        impl::BitmapColorMasks colorMask_;
-        impl::BitmapImageData  imageData_;
-
-        bool has_alpha_;
-
-        uint32_t b_shift_, b_mask_;
-        uint32_t g_shift_, g_mask_;
-        uint32_t r_shift_, r_mask_;
-        uint32_t a_shift_, a_mask_;
 
         Color32 rawToColor32(uint32_t raw) const {
                 const uint8_t
@@ -664,14 +737,40 @@ private:
 namespace puffin {
 
 // -- class Bitmap -------------------------------------------------------------
+Bitmap::Bitmap() :
+        impl_(new impl::Bitmap())
+{
+}
+
 Bitmap::Bitmap(std::istream &f) :
         impl_(new impl::Bitmap(f))
 {
-        std::cout << *impl_;
 }
 
 Bitmap::~Bitmap() {
         delete impl_;
+}
+
+Bitmap::Bitmap(Bitmap const &v) :
+        impl_(new impl::Bitmap(*v.impl_))
+{
+}
+
+Bitmap& Bitmap::operator= (Bitmap const &v) {
+        using std::swap;
+        Bitmap tmp(v);
+        swap(*this, tmp);
+        return *this;
+}
+
+void Bitmap::reset() {
+        using std::swap;
+        Bitmap tmp;
+        swap(*this, tmp);
+}
+
+void Bitmap::reset(std::istream &f) {
+        impl_->reset(f);
 }
 
 int Bitmap::width() const {
@@ -706,14 +805,106 @@ Color32 Bitmap::at(int x, int y) const {
         return impl_->at32(x, y);
 }
 
+std::ostream& operator<< (std::ostream &os, Bitmap const &v) {
+        return os << *v.impl_;
+}
+
+// -- class InvalidBitmap ------------------------------------------------------
+InvalidBitmap::InvalidBitmap() :
+        impl_(new impl::Bitmap())
+{
+}
+
+InvalidBitmap::InvalidBitmap(std::istream &f) :
+        impl_(new impl::Bitmap(f))
+{
+}
+
+InvalidBitmap::~InvalidBitmap() {
+        delete impl_;
+}
+
+InvalidBitmap::InvalidBitmap(InvalidBitmap const &v) :
+        impl_(new impl::Bitmap(*v.impl_))
+{
+}
+
+InvalidBitmap& InvalidBitmap::operator= (InvalidBitmap const &v) {
+        using std::swap;
+        InvalidBitmap tmp(v);
+        swap(*this, tmp);
+        return *this;
+}
+
+void InvalidBitmap::reset() {
+        using std::swap;
+        InvalidBitmap tmp;
+        swap(*this, tmp);
+}
+
+void InvalidBitmap::reset(std::istream &f) {
+        impl_->reset(f);
+}
+
+bool InvalidBitmap::partial_reset(std::istream &f) {
+        return impl_->partial_reset(f);
+}
+
+int InvalidBitmap::width() const {
+        return impl_->width();
+}
+
+int InvalidBitmap::height() const {
+        return impl_->height();
+}
+
+int InvalidBitmap::bpp() const {
+        return impl_->bpp();
+}
+
+bool InvalidBitmap::is_paletted() const {
+        return impl_->is_paletted();
+}
+
+bool InvalidBitmap::is_rgb() const {
+        return impl_->is_rgb();
+}
+
+bool InvalidBitmap::has_alpha() const {
+        return impl_->has_alpha();
+}
+
+bool InvalidBitmap::valid() const {
+        return impl_->valid();
+}
+
+Color32 InvalidBitmap::operator()(int x, int y) const {
+        return impl_->get32(x, y);
+}
+
+Color32 InvalidBitmap::at(int x, int y) const {
+        return impl_->at32(x, y);
+}
+
+std::ostream& operator<< (std::ostream &os, InvalidBitmap const &v) {
+        return os << *v.impl_;
+}
+
 
 // -- read_bmp() ---------------------------------------------------------------
-Bitmap *read_bmp(std::string const &filename) {
+Bitmap read_bmp(std::string const &filename) {
         std::ifstream f(filename, std::ios::binary);
         if (!f.is_open())
                 throw exceptions::file_not_found(filename);
+        return Bitmap(f);
+}
 
-        Bitmap *ret = new Bitmap(f);
+InvalidBitmap read_invalid_bmp(std::string const &filename) {
+        std::ifstream f(filename, std::ios::binary);
+        if (!f.is_open())
+                throw exceptions::file_not_found(filename);
+        InvalidBitmap ret;
+        ret.partial_reset(f);
         return ret;
 }
 
