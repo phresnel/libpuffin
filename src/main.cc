@@ -11,6 +11,10 @@
 #include <bitset>
 #include <sstream>
 
+namespace puffin {
+
+
+}
 
 int main() {
         try {

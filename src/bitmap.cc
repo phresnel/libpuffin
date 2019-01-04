@@ -11,6 +11,7 @@
 #include <fstream>
 #include <iomanip>
 #include <vector>
+#include <bitset>
 
 namespace puffin { namespace impl {
 
@@ -335,10 +336,13 @@ struct ChunkLayout {
         ChunkT write_value(ChunkT chunk, uint32_t ofs, ChunkT val) const {
                 const ChunkT
                         rshift = static_cast<uint32_t>(ofs * pixel_width),
-                        keep_mask = (~pixel_mask) << rshift,
-                        bits_kept = chunk & keep_mask,
-                        bits_renewed = (val & pixel_mask) << rshift,
-                        new_chunk = bits_kept & bits_renewed;
+                        renew_mask = (pixel_mask<<rshift),
+                        keep_mask  = ~renew_mask,
+                        bits_kept    = chunk         & keep_mask,
+                        bits_renewed = (val<<rshift) & renew_mask,
+                        new_chunk = bits_kept | bits_renewed;
+                //std::cout << std::bitset<32>(keep_mask) << " | " << std::bitset<32>(pixel_mask<<rshift) << std::endl;
+                //std::cout << std::bitset<4>(val) << " => " << std::bitset<32>(chunk) << " -> " << std::bitset<32>(new_chunk) << std::endl;
                 return new_chunk;
         }
 };
@@ -478,40 +482,109 @@ struct BitmapImageData {
 
                 if (infoHeader.compression == BI_RLE4) {
                         const std::ostream::pos_type startPos = f.tellg();
+                        const ChunkLayout ch(8, 4);
 
                         int x = 0;
                         int y = 0;
 
-                        const ChunkLayout ch(8, 4);
-                        const uint8_t mode = read_uint8_le(f);
-                        if (mode == 0) {
-                                // absolute mode
-                                std::cerr << "absolute mode" << std::endl;
-                                const uint8_t numIndices = read_uint8_le(f);
-                                for (uint8_t i=0; i<numIndices; i+=ch.pixels_per_chunk) {
-                                        const uint8_t chunk = read_uint8_le(f);
+                        while(true) {
+                                const std::ostream::pos_type runStartPos = f.tellg();
+                                const uint8_t
+                                        first = read_uint8_le(f),
+                                        second = read_uint8_le(f);
 
-                                        for (unsigned o=0; o!=ch.pixels_per_chunk; ++o) {
-                                                const uint8_t v = ch.extract_value(chunk, o);
+                                //std::cout << "[" << (unsigned)first << ":" << (unsigned)second << "]: ";
 
-                                                if (v > 2) {
-                                                        set32(x, y, v);
-                                                        ++x;
-                                                } else {
-                                                        if (0 == v) {
-                                                                x = 0;
-                                                                ++y;
-                                                        } else if (1 == v) {
-                                                                goto done;
-                                                        } else if (2 == v) {
-                                                                x += read_uint8_le(f);
-                                                                y += read_uint8_le(f);
+                                if (first == 0 && second == 0) {
+                                        x = 0;
+                                        ++y;
+                                        //std::cout << "end of line (x=" << x << ", y=" << y << ")\n";
+                                } else if (first == 0 && second == 1) {
+                                        //std::cout << "end of bitmap (x=" << x << ", y=" << y << ")\n";
+                                        goto done;
+                                } else if (first == 0 && second == 2) {
+                                        const uint8_t x_rel = read_uint8_le(f),
+                                                      y_rel = read_uint8_le(f);
+                                        //std::cout << "delta (x_rel=" << x_rel << ", y_rel=" << y_rel << ")\n";
+                                        x += x_rel;
+                                        y += y_rel;
+                                } else if (first == 0) {
+                                        // absolute mode
+                                        const uint8_t numPixels = second;
+
+                                        //std::cout << "absolute mode (numPixels: " << (unsigned) numPixels << ")\n";
+                                        for (uint32_t i = 0; i < numPixels; i += ch.pixels_per_chunk) {
+                                                const uint8_t chunk_raw = read_uint8_le(f);
+                                                const uint8_t chunk = flip_endianness_uint8(
+                                                        static_cast<uint8_t>(ch.pixel_width),
+                                                        static_cast<uint8_t>(chunk_raw)
+                                                );
+
+                                                const uint32_t
+                                                        left = (numPixels - i),
+                                                        len = left < ch.pixels_per_chunk ? left : ch.pixels_per_chunk;
+                                                for (uint32_t o = 0; o != len; ++o) {
+                                                        const uint8_t v = ch.extract_value(chunk, o);
+                                                        //std::cout << "    [" << (i+o) << "] set32(" << x << ", " << y << ", " << (unsigned) v << ")\n";
+                                                        if (infoHeader.isBottomUp) {
+                                                                set32(x, (infoHeader.height-1) - y, v);
+                                                        } else {
+                                                                set32(x, y, v);
                                                         }
+                                                        ++x;
+                                                }
+                                        }
+
+                                        // Pad to 16 bit boundary:
+                                        const std::ostream::pos_type
+                                                curr = f.tellg(),
+                                                next_mul4 = 2U*((curr + std::ostream::pos_type(1U))/2U),
+                                                pad_bytes = next_mul4 - curr;
+                                        f.ignore(pad_bytes);
+                                        //std::cout << " padding by " << pad_bytes << " to " << f.tellg() << "\n";
+                                } else {
+                                        // encoded mode
+                                        const uint8_t numPixels = first;
+                                        const uint8_t chunk = flip_endianness_uint8(
+                                                static_cast<uint8_t>(ch.pixel_width),
+                                                static_cast<uint8_t>(second)
+                                        );
+                                        //std::cout << "encoded mode (numPixels: " << (unsigned)numPixels << ", values: ";
+                                        //for (uint32_t o = 0; o != ch.pixels_per_chunk; ++o) {
+                                        //        const uint8_t v = ch.extract_value(chunk, o);
+                                        //        if (o) std::cout << "|";
+                                        //        std::cout << (unsigned)v;
+                                        //}
+                                        //std::cout << ")\n";
+
+                                        for (uint32_t i = 0; i < numPixels; i += ch.pixels_per_chunk) {
+                                                const uint32_t
+                                                        left = (numPixels - i),
+                                                        len = left < ch.pixels_per_chunk ? left : ch.pixels_per_chunk;
+                                                for (uint32_t o = 0; o != len; ++o) {
+                                                        const uint8_t v = ch.extract_value(chunk, o);
+                                                        //std::cout << "    [" << (i+o) << "] set32(" << x << ", " << y << ", " << (unsigned) v << ")\n";
+                                                        if (infoHeader.isBottomUp) {
+                                                                set32(x, (infoHeader.height-1) - y, v);
+                                                        } else {
+                                                                set32(x, y, v);
+                                                        }
+                                                        ++x;
                                                 }
                                         }
                                 }
-                        } else {
-                                std::cerr << "encoded mode not supported" << std::endl;
+
+                                /*
+                                // Pad to 16 bit boundary:
+                                const std::ostream::pos_type
+                                        runEndPos = f.tellg(),
+                                        bytes_read = runEndPos - runStartPos,
+                                        next_mul4 = 4U*((bytes_read + std::ostream::pos_type(3U))/4U),
+                                        pad_bytes = next_mul4 - bytes_read;
+                                f.ignore(pad_bytes);
+                                std::cout << " padding by " << pad_bytes << " to " << f.tellg() << "\n";
+                                // TODO: Is it valid to just use f.tellg() for alignment?
+                                 */
                         }
 done:
                         const std::ostream::pos_type endPos = f.tellg();
@@ -538,7 +611,9 @@ done:
         }
 
         void set32(int x, int y, uint32_t val) {
+                //std::cout << val << " => " << std::bitset<32>(get32(x, y)) << " --> ";
                 rows_[y].set32(x, val);
+                //std::cout << std::bitset<32>(get32(x, y)) << std::endl;
         }
 
 private:
@@ -555,7 +630,7 @@ private:
 };
 
 inline
-std::ostream& operator<< (std::ostream &os, BitmapImageData const &data) {
+std::ostream& operator<< (std::ostream &os, BitmapImageData const &) {
         return os << "BitmapImageData(...)";
         /*
         if (data.empty())

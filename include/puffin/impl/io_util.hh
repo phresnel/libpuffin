@@ -66,6 +66,72 @@ inline uint32_t read_bytes_to_uint32_be(std::istream &f, int num_bytes) {
         return static_cast<uint32_t>(read_bytes_to_uint64_be(f, num_bytes));
 }
 
+inline
+uint8_t extract_value_uint8(
+        uint8_t bits_per_value,
+        uint8_t chunk,
+        uint8_t ofs
+) {
+        const uint8_t
+                chunk_width = 8,
+                values_per_chunk = chunk_width / bits_per_value,
+                rshift = ofs * bits_per_value,
+                value_mask = (1U << bits_per_value) - 1U,
+                value = (chunk >> rshift) & value_mask;
+        return value;
+}
+
+inline
+uint32_t extract_value_uint32(
+        uint32_t bits_per_value,
+        uint32_t chunk,
+        uint32_t ofs
+) {
+        const uint32_t
+                chunk_width = 32,
+                values_per_chunk = chunk_width / bits_per_value,
+                rshift = ofs * bits_per_value,
+                value_mask = (1U << bits_per_value) - 1U,
+                value = (chunk >> rshift) & value_mask;
+        return value;
+}
+
+inline
+uint8_t flip_endianness_uint8(
+        uint8_t bits_per_value,
+        uint8_t chunk
+) {
+        const uint8_t
+                chunk_width = 8,
+                values_per_chunk = chunk_width / bits_per_value
+        ;
+        uint8_t flipped = 0U;
+        for (uint8_t j = 0U; j != values_per_chunk; ++j) {
+                const uint8_t value =
+                        extract_value_uint8(bits_per_value, chunk, j);
+                flipped = (flipped << bits_per_value) | value;
+        }
+        return flipped;
+}
+
+inline
+uint32_t flip_endianness_uint32(
+        uint32_t bits_per_value,
+        uint32_t chunk
+) {
+        const uint32_t
+                chunk_width = 32,
+                values_per_chunk = chunk_width / bits_per_value
+        ;
+        uint32_t flipped = 0U;
+        for (uint32_t j = 0U; j != values_per_chunk; ++j) {
+                const uint32_t value =
+                        extract_value_uint32(bits_per_value, chunk, j);
+                flipped = (flipped << bits_per_value) | value;
+        }
+        return flipped;
+}
+
 } }
 
 #endif //IO_UTIL_HH_INCLUDED_20181220
