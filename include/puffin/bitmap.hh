@@ -38,6 +38,10 @@ public:
         bool is_rgb() const;
         bool has_alpha() const;
 
+        unsigned int x_pixels_per_meter() const;
+        unsigned int y_pixels_per_meter() const;
+        bool has_square_pixels() const;
+
         Color32 operator() (int x, int y) const;
         Color32 at (int x, int y) const;
 
@@ -73,6 +77,10 @@ public:
         bool is_rgb() const;
         bool has_alpha() const;
         bool valid() const;
+
+        unsigned int x_pixels_per_meter() const;
+        unsigned int y_pixels_per_meter() const;
+        bool has_square_pixels() const;
 
         Color32 operator() (int x, int y) const;
         Color32 at (int x, int y) const;

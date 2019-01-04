@@ -103,7 +103,7 @@ struct BitmapInfoHeader {
         int32_t height;
         uint16_t planes;
         uint16_t bitsPerPixel;
-        BitmapCompression compression; // 0 = BI_RGB (none), 1 = BI_RLE8, 2 = BI_RLE4
+        BitmapCompression compression;
         uint32_t compressedImageSize; // 0 if compression is 0
         uint32_t xPixelsPerMeter;
         uint32_t yPixelsPerMeter;
@@ -480,9 +480,13 @@ struct BitmapImageData {
                         }
                 }
 
-                if (infoHeader.compression == BI_RLE4) {
+                if (infoHeader.compression == BI_RLE4 ||
+                    infoHeader.compression == BI_RLE8) {
                         const std::ostream::pos_type startPos = f.tellg();
-                        const ChunkLayout ch(8, 4);
+                        const ChunkLayout ch(
+                                8,
+                                infoHeader.compression == BI_RLE4 ? 4 : 8
+                        );
 
                         int x = 0;
                         int y = 0;
@@ -717,6 +721,18 @@ public:
                 return has_alpha_;
         }
 
+        unsigned int Bitmap::x_pixels_per_meter() const {
+                return infoHeader_.xPixelsPerMeter;
+        }
+
+        unsigned int Bitmap::y_pixels_per_meter() const {
+                return infoHeader_.yPixelsPerMeter;
+        }
+
+        bool Bitmap::has_square_pixels() const {
+                return x_pixels_per_meter() == y_pixels_per_meter();
+        }
+
         Color32 get32(int x, int y) const {
                 if (x<0 || x>=width() || y<0 || y>=height()) {
                         return Color32();
@@ -774,7 +790,8 @@ public:
                 os << "rgb:" << (v.is_rgb()?"yes":"no") << "\n"
                    << "paletted:" << (v.is_paletted()?"yes":"no") << "\n"
                    << "alpha:" << (v.has_alpha()?"yes":"no") << "\n"
-                   << "valid:" << (v.valid()?"yes":"no") << "\n";
+                   << "valid:" << (v.valid()?"yes":"no") << "\n"
+                   << "square pixels:" << (v.has_square_pixels()?"yes":"no") << "\n";
                 return os;
         }
 private:
@@ -804,10 +821,10 @@ private:
                 f.seekg(headerPos);
                 switch (infoHeader_.compression) {
                 case BI_RGB:
+                case BI_RLE8:
                 case BI_RLE4:
                         break;
 
-                case BI_RLE8:
                 case BI_BITFIELDS:
                 case BI_JPEG:
                 case BI_PNG:
@@ -964,6 +981,18 @@ bool Bitmap::has_alpha() const {
         return impl_->has_alpha();
 }
 
+unsigned int Bitmap::x_pixels_per_meter() const {
+        return impl_->x_pixels_per_meter();
+}
+
+unsigned int Bitmap::y_pixels_per_meter() const {
+        return impl_->y_pixels_per_meter();
+}
+
+bool Bitmap::has_square_pixels() const {
+        return impl_->has_square_pixels();
+}
+
 Color32 Bitmap::operator()(int x, int y) const {
         return impl_->get32(x, y);
 }
@@ -1043,6 +1072,18 @@ bool InvalidBitmap::has_alpha() const {
 
 bool InvalidBitmap::valid() const {
         return impl_->valid();
+}
+
+unsigned int InvalidBitmap::x_pixels_per_meter() const {
+        return impl_->x_pixels_per_meter();
+}
+
+unsigned int InvalidBitmap::y_pixels_per_meter() const {
+        return impl_->y_pixels_per_meter();
+}
+
+bool InvalidBitmap::has_square_pixels() const {
+        return impl_->has_square_pixels();
 }
 
 Color32 InvalidBitmap::operator()(int x, int y) const {
