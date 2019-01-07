@@ -1110,7 +1110,7 @@ Bitmap read_bmp(std::string const &filename) {
 InvalidBitmap read_invalid_bmp(std::string const &filename) {
         std::ifstream f(filename, std::ios::binary);
         if (!f.is_open())
-                throw exceptions::file_not_found(filename);
+                return InvalidBitmap();
         InvalidBitmap ret;
         ret.partial_reset(f);
         return ret;

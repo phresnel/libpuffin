@@ -22,7 +22,7 @@ int main() {
                 //puffin::InvalidBitmap p = puffin::read_invalid_bmp("dev-assets/bmp/puffin_24bit.bmp");
 
                 // TODO: puffin::InvalidBitmap p = puffin::read_invalid_bmp("dev-assets/bmpsuite-2.5/g/pal8os2.bmp");
-                puffin::InvalidBitmap p = puffin::read_invalid_bmp("dev-assets/bmpsuite-2.5/g/pal8rle.bmp");
+                puffin::InvalidBitmap p = puffin::read_invalid_bmp("dev-assets/bmpsuite-2.5/g/pal8w124.bmpx");
                 std::cout << p << std::endl;
                 if (!p.valid()) {
                         std::cerr << "bitmap invalid or unsupported\n";
