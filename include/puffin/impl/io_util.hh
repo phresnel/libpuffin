@@ -116,20 +116,70 @@ uint8_t flip_endianness_uint8(
 
 inline
 uint32_t flip_endianness_uint32(
-        uint32_t bits_per_value,
+        uint32_t value_width,
         uint32_t chunk
 ) {
         const uint32_t
                 chunk_width = 32,
-                values_per_chunk = chunk_width / bits_per_value
+                values_per_chunk = chunk_width / value_width
         ;
         uint32_t flipped = 0U;
         for (uint32_t j = 0U; j != values_per_chunk; ++j) {
                 const uint32_t value =
-                        extract_value_uint32(bits_per_value, chunk, j);
-                flipped = (flipped << bits_per_value) | value;
+                        extract_value_uint32(value_width, chunk, j);
+                flipped = (flipped << value_width) | value;
         }
         return flipped;
+}
+
+inline
+uint32_t flip_endianness_uint32(
+        uint32_t value_width,
+        uint32_t chunk_width,
+        uint32_t chunk
+) {
+        const uint32_t
+                values_per_chunk = chunk_width / value_width
+        ;
+        uint32_t flipped = 0U;
+        for (uint32_t j = 0U; j != values_per_chunk; ++j) {
+                const uint32_t value =
+                        extract_value_uint32(value_width, chunk, j);
+                flipped = (flipped << value_width) | value;
+        }
+        return flipped;
+}
+
+inline
+uint32_t any_bit_set_uint32(uint32_t value) {
+        return value != 0;
+}
+
+inline
+uint32_t no_bit_set_uint32(uint32_t value) {
+        return value == 0;
+}
+
+inline
+uint32_t first_bit_set_uint32(uint32_t value) {
+        if (no_bit_set_uint32(value))
+                return 0;
+
+        uint32_t ret = 0;
+        while(((value>>ret)&1) == 0)
+                ++ret;
+        return ret;
+}
+
+inline
+uint32_t last_bit_set_uint32(uint32_t value) {
+        if (no_bit_set_uint32(value))
+                return 0;
+
+        uint32_t ret = 31;
+        while(((value>>ret)&1) == 0)
+                --ret;
+        return ret;
 }
 
 } }

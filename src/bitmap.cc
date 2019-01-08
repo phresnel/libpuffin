@@ -8,6 +8,7 @@
 #include "puffin/bitmap.hh"
 #include "puffin/exceptions.hh"
 #include "puffin/impl/io_util.hh"
+#include "puffin/experimental/bitfield.hh"
 #include <fstream>
 #include <iomanip>
 #include <vector>
@@ -205,6 +206,22 @@ private:
                 BitmapInfoHeader const &info,
                 std::istream &f
         ) {
+                // TODO: See http://www.fileformat.info/format/bmp/egff.htm:
+                //       "To detect the presence of a color palette in a BMP
+                //        file (rather than just assuming that a color palette
+                //        does exist), you can calculate the number of bytes
+                //        between the bitmap header and the bitmap data and
+                //        divide this number by the size of a single palette
+                //        element. Assuming that your code is compiled using
+                //        1-byte structure element alignment, the calculation
+                //        is:"
+                // TODO: "You must be sure to check the Size field of the bitmap
+                //        header to know if you are reading 3-byte or 4-byte
+                //        color palette elements. A Size value of 12 indicates a
+                //        Windows 2.x (or possibly an OS/2 1.x) BMP file with
+                //        3-byte elements. Larger numbers (such as 40 and 108)
+                //        indicate later versions of BMP, which all use 4-byte
+                //        color palette elements."
                 const auto numColors = info.colorsUsed != 0 ? info.colorsUsed :
                                        info.bitsPerPixel == 1 ? 2 :
                                        info.bitsPerPixel == 2 ? 4 :
@@ -244,30 +261,38 @@ std::ostream& operator<< (std::ostream &os, BitmapColorTable const &v) {
 
 
 struct BitmapColorMasks {
-        uint32_t blue;
-        uint32_t green;
         uint32_t red;
+        uint32_t green;
+        uint32_t blue;
 
-        BitmapColorMasks() : blue(0), green(0), red(0) {}
+        BitmapColorMasks() {
+                reset();
+        }
 
         BitmapColorMasks(BitmapInfoHeader const &info, std::istream &f) {
                 reset(info, f);
         }
 
+        void reset() {
+                blue = green = red = 0;
+        }
+
         void reset(BitmapInfoHeader const &info, std::istream &f) {
+                reset();
+
                 if (info.compression != BitmapCompression::BI_BITFIELDS)
                         return;
-                blue = impl::read_uint32_le(f);
-                green = impl::read_uint32_le(f);
                 red = impl::read_uint32_le(f);
+                green = impl::read_uint32_le(f);
+                blue = impl::read_uint32_le(f);
         }
 };
 inline
 std::ostream& operator<< (std::ostream &os, BitmapColorMasks const &v) {
         return os << "ColorMask{\n"
-                  << "  red..:" << v.red << "\n"
-                  << "  green:" << v.green << "\n"
-                  << "  blue.:" << v.blue << "\n"
+                  << "  red..:" << std::bitset<32>(v.red) << "\n"
+                  << "  green:" << std::bitset<32>(v.green) << "\n"
+                  << "  blue.:" << std::bitset<32>(v.blue) << "\n"
                   << "}\n";
 }
 
@@ -278,17 +303,20 @@ struct ChunkLayout {
         uint32_t bytes_per_chunk;
         uint32_t pixel_mask;
         uint32_t nonsignificant_bits;
+        bool     little_endian;
 
         ChunkLayout() {}
 
         explicit ChunkLayout(BitmapInfoHeader const &infoHeader) :
-                chunk_width(infoHeader.bitsPerPixel == 24 ? 24 : 32),
+                chunk_width(infoHeader.bitsPerPixel > 8 ? infoHeader.bitsPerPixel : 8),
                 pixel_width(infoHeader.bitsPerPixel),
                 pixels_per_chunk(chunk_width / pixel_width),
                 bytes_per_chunk(chunk_width / 8),
                 pixel_mask((1U << pixel_width) - 1U), // TODO: This may fail for large types
-                nonsignificant_bits(chunk_width % pixel_width)
-        { }
+                nonsignificant_bits(chunk_width % pixel_width),
+                little_endian((pixel_width == 16) ? false : true)
+        {
+        }
 
         ChunkLayout(uint32_t chunk_width, uint32_t pixel_width) :
                 chunk_width(chunk_width),
@@ -296,7 +324,8 @@ struct ChunkLayout {
                 pixels_per_chunk(chunk_width / pixel_width),
                 bytes_per_chunk(chunk_width / 8),
                 pixel_mask((1U << pixel_width) - 1U), // TODO: This may fail for large types
-                nonsignificant_bits(chunk_width % pixel_width)
+                nonsignificant_bits(chunk_width % pixel_width),
+                little_endian((pixel_width == 16) ? false : true)
         { }
 
 
@@ -346,6 +375,16 @@ struct ChunkLayout {
                 return new_chunk;
         }
 };
+std::ostream& operator<< (std::ostream& os, ChunkLayout const &v) {
+        return os << "ChunkLayout:\n"
+                  << "  chunk_width:" << v.chunk_width << "\n"
+                  << "  pixel_width:" << v.pixel_width << "\n"
+                  << "  pixels_per_chunk:" << v.pixels_per_chunk << "\n"
+                  << "  bytes_per_chunk:" << v.bytes_per_chunk << "\n"
+                  << "  pixel_mask:" << std::bitset<32>(v.pixel_mask) << "\n"
+                  << "  little_endian:" << (v.little_endian?"little":"big") << " endian\n"
+                  << "  nonsignificant_bits:" << v.nonsignificant_bits << "\n";
+}
 
 struct BitmapRowData {
         // -- types ----------------------------------------------------
@@ -363,32 +402,42 @@ struct BitmapRowData {
                 BitmapInfoHeader const &infoHeader,
                 std::istream &f
         ) {
+                std::cout << "BitmapRowData::reset()\n";
+
                 width_ = infoHeader.width;
                 layout_ = ChunkLayout(infoHeader);
-                const std::ostream::pos_type startPos = f.tellg();
-                const uint32_t chunk_width = infoHeader.bitsPerPixel == 24 ? 24 : 32;
-
                 chunks_.clear();
 
+                const std::ostream::pos_type startPos = f.tellg();
+
                 const uint32_t numChunks = layout_.width_to_chunk_count(infoHeader.width);
-                if (infoHeader.compression != BI_RGB) {
+                if (!(infoHeader.compression == BI_RGB ||
+                      infoHeader.compression == BI_BITFIELDS))
+                {
                         chunks_.resize(numChunks);
                         return;
                 }
 
+                // std::cout << " chunk-layout:" << layout_ << "\n";
+
                 chunks_.reserve(numChunks);
                 for (uint32_t i = 0U; i != numChunks; ++i) {
-                        // TODO: make chunk-type more generic.
-                        const chunk_type chunk =
-                                read_bytes_to_uint32_le(f, layout_.bytes_per_chunk) >> layout_.nonsignificant_bits;
-                        // Flip the order of pixels in this chunk (which will
-                        //  result in a more trivial extract_value() function):
-                        chunk_type flipped = 0U;
-                        for (uint32_t j=0U; j!=layout_.pixels_per_chunk; ++j) {
-                                const chunk_type pixel = layout_.extract_value(chunk, j);
-                                flipped = (flipped << layout_.pixel_width) | pixel;
-                        }
+                        const chunk_type chunk_raw =
+                                layout_.little_endian ?
+                                read_bytes_to_uint32_le(f, layout_.bytes_per_chunk) :
+                                read_bytes_to_uint32_be(f, layout_.bytes_per_chunk);
+                        const chunk_type chunk = chunk_raw >> layout_.nonsignificant_bits;
+
+                        // This flips the pixel order when there are multiple
+                        // pixels per chunk (only the case in 1..8 bit bmp's)
+                        const uint32_t flipped = flip_endianness_uint32(
+                                static_cast<uint32_t>(layout_.pixel_width),
+                                static_cast<uint32_t>(layout_.chunk_width),
+                                static_cast<uint32_t>(chunk)
+                        );
                         chunks_.push_back(flipped);
+
+                        // TODO: Shift up the values to 0..255 here already.
                 }
 
                 // Round up to multiple of 4.
@@ -542,8 +591,8 @@ struct BitmapImageData {
                                         // Pad to 16 bit boundary:
                                         const std::ostream::pos_type
                                                 curr = f.tellg(),
-                                                next_mul4 = 2U*((curr + std::ostream::pos_type(1U))/2U),
-                                                pad_bytes = next_mul4 - curr;
+                                                next_mul2 = 2U*((curr + std::ostream::pos_type(1U))/2U),
+                                                pad_bytes = next_mul2 - curr;
                                         f.ignore(pad_bytes);
                                         //std::cout << " padding by " << pad_bytes << " to " << f.tellg() << "\n";
                                 } else {
@@ -787,7 +836,8 @@ public:
                 os << "ImageData:"
                    << (v.imageData_.empty() ? "no" : "yes")
                    << "\n";
-                os << "rgb:" << (v.is_rgb()?"yes":"no") << "\n"
+                os << "bpp:" << v.bpp() << "\n"
+                   << "rgb:" << (v.is_rgb()?"yes":"no") << "\n"
                    << "paletted:" << (v.is_paletted()?"yes":"no") << "\n"
                    << "alpha:" << (v.has_alpha()?"yes":"no") << "\n"
                    << "valid:" << (v.valid()?"yes":"no") << "\n"
@@ -804,10 +854,10 @@ private:
 
         bool has_alpha_;
 
-        uint32_t b_shift_, b_mask_;
-        uint32_t g_shift_, g_mask_;
-        uint32_t r_shift_, r_mask_;
-        uint32_t a_shift_, a_mask_;
+        uint32_t b_shift_, b_mask_, b_width_;
+        uint32_t g_shift_, g_mask_, g_width_;
+        uint32_t r_shift_, r_mask_, r_width_;
+        uint32_t a_shift_, a_mask_, a_width_;
 
         bool valid_;
 
@@ -819,13 +869,13 @@ private:
                 const auto headerPos = f.tellg();
                 infoHeader_.reset(f);
                 f.seekg(headerPos);
+
                 switch (infoHeader_.compression) {
                 case BI_RGB:
                 case BI_RLE8:
                 case BI_RLE4:
-                        break;
-
                 case BI_BITFIELDS:
+                        break;
                 case BI_JPEG:
                 case BI_PNG:
                 case BI_CMYK:
@@ -847,7 +897,41 @@ private:
                 imageData_.reset(header_, infoHeader_, f);
 
                 // set bitmasks
-                switch (bpp()) {
+                if (infoHeader_.compression == BI_BITFIELDS) {
+                        // TODO: signal error on bitfields with non-contiguous 1-sequences
+                        a_shift_ = 0;
+                        b_shift_ = first_bit_set_uint32(colorMask_.blue);
+                        g_shift_ = first_bit_set_uint32(colorMask_.green);
+                        r_shift_ = first_bit_set_uint32(colorMask_.red);
+
+                        a_mask_ = 0x0;
+                        b_mask_ = colorMask_.blue >> b_shift_;
+                        g_mask_ = colorMask_.green >> g_shift_;
+                        r_mask_ = colorMask_.red  >> r_shift_;
+
+                        a_width_ = 0;
+                        b_width_ = 1 + last_bit_set_uint32(colorMask_.blue) - b_shift_;
+                        g_width_ = 1 + last_bit_set_uint32(colorMask_.green) - g_shift_;
+                        r_width_ = 1 + last_bit_set_uint32(colorMask_.red) - r_shift_;
+
+                        std::cout << "b_shift:" << b_shift_ << ", b_width:" << b_width_ << "\n";
+                        std::cout << "g_shift:" << g_shift_ << ", g_width:" << g_width_ << "\n";
+                        std::cout << "r_shift:" << r_shift_ << ", r_width:" << r_width_ << "\n";
+                } else switch (bpp()) {
+                case 16:
+                        a_mask_ = 0x0;
+                        b_mask_ = 0b11111;
+                        g_mask_ = 0b11111;
+                        r_mask_ = 0b11111;
+                        a_shift_ = 0;
+                        b_shift_ = 0;
+                        g_shift_ = 5;
+                        r_shift_ = 10;
+                        a_width_ = 0;
+                        b_width_ = 5;
+                        g_width_ = 5;
+                        r_width_ = 5;
+                        break;
                 case 24:
                         a_mask_ = 0x0;
                         b_mask_ = 0xFF;
@@ -857,6 +941,10 @@ private:
                         b_shift_ = 16;
                         g_shift_ = 8;
                         r_shift_ = 0;
+                        a_width_ = 0;
+                        b_width_ = 8;
+                        g_width_ = 8;
+                        r_width_ = 8;
                         break;
                 case 32:
                         a_mask_ = 0xFF;
@@ -867,6 +955,10 @@ private:
                         b_shift_ = 16;
                         g_shift_ = 8;
                         r_shift_ = 0;
+                        a_width_ = 8;
+                        b_width_ = 8;
+                        g_width_ = 8;
+                        r_width_ = 8;
                         break;
                 default:
                         a_mask_ = 0x0;
@@ -877,6 +969,10 @@ private:
                         b_shift_ = 0;
                         g_shift_ = 0;
                         r_shift_ = 0;
+                        a_width_ = 0;
+                        b_width_ = 0;
+                        g_width_ = 0;
+                        r_width_ = 0;
                         break;
                 }
 
@@ -909,7 +1005,17 @@ private:
                         r = static_cast<uint8_t>((raw >> r_shift_) & r_mask_),
                         a = static_cast<uint8_t>((raw >> a_shift_) & a_mask_)
                 ;
-                return Color32(r, g, b, a);
+                const uint8_t
+                        b8 = b << (8-b_width_),
+                        g8 = g << (8-g_width_),
+                        r8 = r << (8-r_width_),
+                        a8 = a << (8-a_width_)
+                ;
+                const Color32 ret = Color32(r8, g8, b8, a8);
+                /*
+                std::cout << "raw:[" << std::bitset<8>((raw>>8)&0xFF) << "," << std::bitset<8>(raw&0xFF) << "]"
+                          << ", Color32:[" << std::bitset<5>(r) << "," << std::bitset<5>(g) << "," << std::bitset<5>(b) << "]" << "\n";*/
+                return ret;
         }
 };
 
@@ -1117,6 +1223,42 @@ InvalidBitmap read_invalid_bmp(std::string const &filename) {
 }
 
 }
+
+// TODO: See http://www.fileformat.info/format/bmp/egff.htm:
+//       "Windows BMP File Types
+//
+//        Each new version of BMP has added new information to the bitmap header. In
+//        some cases, the newer versions have changed the size of the color palette
+//        and added features to the format itself. Unfortunately, a field wasn't
+//        included in the header to easily indicate the version of the file's format
+//        or the type of operating system that created the BMP file. If we add
+//        Windows' four versions of BMP to OS/2's two versions--each with four
+//        possible variations--we find that as many as twelve different related file
+//        formats all have the file extension ".BMP".
+//
+//        It is clear that you cannot know the internal format of a BMP file based on
+//        the file extension alone. But, fortunately, you can use a short algorithm to
+//        determine the internal format of BMP files.
+//
+//        The FileType field of the file header is where we start. If these two byte
+//        values are 424Dh ("BM"), then you have a single-image BMP file that may have
+//        been created under Windows or OS/2. If FileType is the value 4142h ("BA"),
+//        then you have an OS/2 bitmap array file. Other OS/2 BMP variations have the
+//        file extensions .ICO and .PTR.
+//
+//        If your file type is "BM", then you must now read the Size field of the
+//        bitmap header to determine the version of the file. Size will be 12 for
+//        Windows 2.x BMP and OS/2 1.x BMP, 40 for Windows 3.x and Windows NT BMP, 12
+//        to 64 for OS/2 2.x BMP, and 108 for Windows 4.x BMP. A Windows NT BMP file
+//        will always have a Compression value of 3; otherwise, it is read as a Windows
+//        3.x BMP file.
+//
+//        Note that the only difference between Windows 2.x BMP and OS/2 1.x BMP is
+//        the data type of the Width and Height fields. For Windows 2.x, they are
+//        signed shorts and for OS/2 1.x, they are unsigned shorts. Windows 3.x,
+//        Windows NT, and OS/2 2.x BMP files only vary in the number of fields in the
+//        bitmap header and in the interpretation of the Compression field."
+
 
 //- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // Implementer's notes.
