@@ -176,11 +176,11 @@ std::ostream& operator<< (std::ostream &os, BitmapInfoHeader const &v) {
 struct BitmapColorTable {
         BitmapColorTable() {}
 
-        BitmapColorTable(BitmapInfoHeader const &info, std::istream &f) :
-                entries_(readEntries(info, f)) {}
+        BitmapColorTable(BitmapInfoHeader const &info, BitmapVersion v, std::istream &f) :
+                entries_(readEntries(info, v, f)) {}
 
-        void reset(BitmapInfoHeader const &info, std::istream &f) {
-                entries_ = readEntries(info, f);
+        void reset(BitmapInfoHeader const &info, BitmapVersion v,std::istream &f) {
+                entries_ = readEntries(info, v, f);
         }
 
         Color32 operator[](int i) const {
@@ -204,6 +204,7 @@ private:
 
         static std::vector<Color32> readEntries(
                 BitmapInfoHeader const &info,
+                BitmapVersion version,
                 std::istream &f
         ) {
                 // TODO: See http://www.fileformat.info/format/bmp/egff.htm:
@@ -402,7 +403,7 @@ struct BitmapRowData {
                 BitmapInfoHeader const &infoHeader,
                 std::istream &f
         ) {
-                std::cout << "BitmapRowData::reset()\n";
+                //std::cout << "BitmapRowData::reset()\n";
 
                 width_ = infoHeader.width;
                 layout_ = ChunkLayout(infoHeader);
@@ -721,7 +722,8 @@ public:
                 r_shift_(0), r_mask_(0),
                 a_shift_(0), a_mask_(0),
 
-                valid_(0)
+                valid_(0),
+                bitmapVersion_(BMPv_Unknown)
         { }
 
         Bitmap(std::istream &f) {
@@ -780,6 +782,10 @@ public:
 
         bool Bitmap::has_square_pixels() const {
                 return x_pixels_per_meter() == y_pixels_per_meter();
+        }
+
+        BitmapVersion version() const {
+                return bitmapVersion_;
         }
 
         Color32 get32(int x, int y) const {
@@ -841,7 +847,8 @@ public:
                    << "paletted:" << (v.is_paletted()?"yes":"no") << "\n"
                    << "alpha:" << (v.has_alpha()?"yes":"no") << "\n"
                    << "valid:" << (v.valid()?"yes":"no") << "\n"
-                   << "square pixels:" << (v.has_square_pixels()?"yes":"no") << "\n";
+                   << "square pixels:" << (v.has_square_pixels()?"yes":"no") << "\n"
+                   << "bitmap version:" << v.version() << "\n";
                 return os;
         }
 private:
@@ -860,6 +867,7 @@ private:
         uint32_t a_shift_, a_mask_, a_width_;
 
         bool valid_;
+        BitmapVersion bitmapVersion_;
 
         bool reset(std::istream &f, bool exceptions) {
                 reset();
@@ -868,6 +876,7 @@ private:
                 header_.reset(f);
                 const auto headerPos = f.tellg();
                 infoHeader_.reset(f);
+                bitmapVersion_ = determineBitmapVersion(header_, infoHeader_);
                 f.seekg(headerPos);
 
                 switch (infoHeader_.compression) {
@@ -892,7 +901,7 @@ private:
                 }
 
                 f.seekg(infoHeader_.infoHeaderSize, std::ios_base::cur);
-                colorTable_.reset(infoHeader_, f);
+                colorTable_.reset(infoHeader_, bitmapVersion_, f);
                 colorMask_.reset(infoHeader_, f);
                 imageData_.reset(header_, infoHeader_, f);
 
@@ -1017,6 +1026,51 @@ private:
                           << ", Color32:[" << std::bitset<5>(r) << "," << std::bitset<5>(g) << "," << std::bitset<5>(b) << "]" << "\n";*/
                 return ret;
         }
+
+private:
+        static
+        BitmapVersion determineBitmapVersion(
+                BitmapHeader const &header,
+                BitmapInfoHeader const &infoHeader
+        ) {
+                // "The FileType field of the file header is where we start. If
+                //  these two byte values are 424Dh ("BM"), then you have a
+                //  single-image BMP file that may have been created under
+                //  Windows or OS/2. If FileType is the value 4142h ("BA"), then
+                //  you have an OS/2 bitmap array file. Other OS/2 BMP
+                //  variations have the file extensions .ICO and .PTR.
+                //
+                //  If your file type is "BM", then you must now read the Size
+                //  field of the bitmap header to determine the version of the
+                //  file. Size will be 12 for Windows 2.x BMP and OS/2 1.x BMP,
+                //  40 for Windows 3.x and Windows NT BMP, 12 to 64 for OS/2 2.x
+                //  BMP, and 108 for Windows 4.x BMP. A Windows NT BMP file will
+                //  always have a Compression value of 3; otherwise, it is read
+                //  as a Windows 3.x BMP file.
+                //
+                //  Note that the only difference between Windows 2.x BMP and
+                //  OS/2 1.x BMP is the data type of the Width and Height
+                //  fields. For Windows 2.x, they are signed shorts and for
+                //  OS/2 1.x, they are unsigned shorts. Windows 3.x, Windows NT,
+                //  and OS/2 2.x BMP files only vary in the number of fields in
+                //  the bitmap header and in the interpretation of the
+                //  Compression field."
+                switch (header.signature) {
+                case 0x424d: // 'BM'
+                        switch (infoHeader.infoHeaderSize) {
+                        case 12: return BMPv_Windows2;
+                        case 40: return BMPv_Windows3;
+                        case 108: return BMPv_Windows4;
+                        };
+                        break;
+                case 0x4241: // 'BA'
+                        // .BMP? .ICO? .PTR?
+                        throw std::logic_error("not implemented");
+                }
+
+
+                return BMPv_Unknown;
+        }
 };
 
 
@@ -1097,6 +1151,10 @@ unsigned int Bitmap::y_pixels_per_meter() const {
 
 bool Bitmap::has_square_pixels() const {
         return impl_->has_square_pixels();
+}
+
+BitmapVersion Bitmap::version() const {
+        return impl_->version();
 }
 
 Color32 Bitmap::operator()(int x, int y) const {
@@ -1190,6 +1248,10 @@ unsigned int InvalidBitmap::y_pixels_per_meter() const {
 
 bool InvalidBitmap::has_square_pixels() const {
         return impl_->has_square_pixels();
+}
+
+BitmapVersion InvalidBitmap::version() const {
+        return impl_->version();
 }
 
 Color32 InvalidBitmap::operator()(int x, int y) const {

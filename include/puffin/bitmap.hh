@@ -17,11 +17,35 @@
 
 namespace puffin {
 
+// TODO: de-uglify this enum. Should be just ditch C++03?
+enum BitmapVersion {
+        BMPv_Unknown = 0,
+        BMPv_Os2BitmapArray_BMP,
+        BMPv_Os2BitmapArray_ICO,
+        BMPv_Os2BitmapArray_PTR,
+        BMPv_Windows2,
+        BMPv_Windows3,
+        BMPv_Windows4
+};
+inline
+std::ostream& operator<< (std::ostream &os, BitmapVersion v) {
+        switch (v) {
+        case BMPv_Unknown: return os << "BMPv_Unknown";
+        case BMPv_Os2BitmapArray_BMP: return os << "BMPv_Os2BitmapArray_BMP";
+        case BMPv_Os2BitmapArray_ICO: return os << "BMPv_Os2BitmapArray_ICO";
+        case BMPv_Os2BitmapArray_PTR: return os << "BMPv_Os2BitmapArray_PTR";
+        case BMPv_Windows2: return os << "BMPv_Windows2";
+        case BMPv_Windows3: return os << "BMPv_Windows3";
+        case BMPv_Windows4: return os << "BMPv_Windows4";
+        }
+        return os << "BMPv_<unkwn" << (int)v << ">";
+}
+
 namespace impl { struct Bitmap; }
 
 class Bitmap {
 public:
-        Bitmap(std::istream &);
+        explicit Bitmap(std::istream &);
         ~Bitmap();
 
         Bitmap(Bitmap const &);
@@ -37,6 +61,7 @@ public:
         bool is_paletted() const;
         bool is_rgb() const;
         bool has_alpha() const;
+        BitmapVersion version() const;
 
         unsigned int x_pixels_per_meter() const;
         unsigned int y_pixels_per_meter() const;
@@ -59,7 +84,7 @@ private:
 class InvalidBitmap {
 public:
         InvalidBitmap();
-        InvalidBitmap(std::istream &);
+        explicit InvalidBitmap(std::istream &);
         ~InvalidBitmap();
 
         InvalidBitmap(InvalidBitmap const &);
@@ -76,6 +101,7 @@ public:
         bool is_paletted() const;
         bool is_rgb() const;
         bool has_alpha() const;
+        BitmapVersion version() const;
         bool valid() const;
 
         unsigned int x_pixels_per_meter() const;
