@@ -77,6 +77,8 @@ struct BitmapHeader {
                 reserved2 = impl::read_uint16_le(f);
                 dataOffset = impl::read_uint32_le(f);
         }
+
+        enum { size_in_file = (16 + 32 + 16 + 16 + 32)/8 };
 };
 inline
 std::ostream& operator<< (std::ostream &os, BitmapHeader const &v) {
@@ -176,11 +178,22 @@ std::ostream& operator<< (std::ostream &os, BitmapInfoHeader const &v) {
 struct BitmapColorTable {
         BitmapColorTable() {}
 
-        BitmapColorTable(BitmapInfoHeader const &info, BitmapVersion v, std::istream &f) :
-                entries_(readEntries(info, v, f)) {}
+        BitmapColorTable(
+                BitmapHeader const &header,
+                BitmapInfoHeader const &infoHeader,
+                BitmapVersion v,
+                std::istream &f
+        ) {
+                reset(header, infoHeader, v, f);
+        }
 
-        void reset(BitmapInfoHeader const &info, BitmapVersion v,std::istream &f) {
-                entries_ = readEntries(info, v, f);
+        void reset(
+                BitmapHeader const &header,
+                BitmapInfoHeader const &infoHeader,
+                BitmapVersion v,
+                std::istream &f
+        ) {
+                entries_ = readEntries(header, infoHeader, v, f);
         }
 
         Color32 operator[](int i) const {
@@ -203,19 +216,29 @@ private:
         std::vector<Color32> entries_;
 
         static std::vector<Color32> readEntries(
-                BitmapInfoHeader const &info,
-                BitmapVersion version,
+                BitmapHeader const &header,
+                BitmapInfoHeader const &infoHeader,
+                BitmapVersion v,
                 std::istream &f
         ) {
-                // TODO: See http://www.fileformat.info/format/bmp/egff.htm:
-                //       "To detect the presence of a color palette in a BMP
-                //        file (rather than just assuming that a color palette
-                //        does exist), you can calculate the number of bytes
-                //        between the bitmap header and the bitmap data and
-                //        divide this number by the size of a single palette
-                //        element. Assuming that your code is compiled using
-                //        1-byte structure element alignment, the calculation
-                //        is:"
+                const uint32_t size = computeSize(header, infoHeader, v);
+                const bool fourChannel = isFourChannel(v);
+
+                std::vector<Color32> ret;
+                ret.reserve(size);
+                for (uint32_t i = 0; i < size; ++i) {
+                        const uint8_t blue = impl::read_uint8_le(f),
+                                      green = impl::read_uint8_le(f),
+                                      red = impl::read_uint8_le(f);
+                        if (fourChannel) {
+                                impl::read_uint8_le(f); // reserved
+                        }
+                        ret.push_back(Color32(red, green, blue));
+                }
+                return ret;
+        }
+
+        static bool isFourChannel(BitmapVersion v) {
                 // TODO: "You must be sure to check the Size field of the bitmap
                 //        header to know if you are reading 3-byte or 4-byte
                 //        color palette elements. A Size value of 12 indicates a
@@ -223,23 +246,45 @@ private:
                 //        3-byte elements. Larger numbers (such as 40 and 108)
                 //        indicate later versions of BMP, which all use 4-byte
                 //        color palette elements."
-                const auto numColors = info.colorsUsed != 0 ? info.colorsUsed :
-                                       info.bitsPerPixel == 1 ? 2 :
-                                       info.bitsPerPixel == 2 ? 4 :
-                                       info.bitsPerPixel == 4 ? 16 :
-                                       info.bitsPerPixel == 8 ? 256 : 0;
+                if (v == BMPv_Windows2)
+                        return false;
+                return true;
+        }
 
-                std::vector<Color32> ret;
-                ret.reserve(numColors);
-                // TODO: Probably need to rework the table size determination
-                for (unsigned int i = 0; i < numColors; ++i) {
-                        const uint8_t blue = impl::read_uint8_le(f),
-                                      green = impl::read_uint8_le(f),
-                                      red = impl::read_uint8_le(f),
-                                      reserved = impl::read_uint8_le(f);
-                        ret.push_back(Color32(red, green, blue));
-                }
-                return ret;
+        static uint32_t computeSize(
+                BitmapHeader const &header,
+                BitmapInfoHeader const &infoHeader,
+                BitmapVersion v
+        ) {
+                // See http://www.fileformat.info/format/bmp/egff.htm:
+                // "To detect the presence of a color palette in a BMP file
+                //  (rather than just assuming that a color palette does exist),
+                //  you can calculate the number of bytes between the bitmap
+                //  header and the bitmap data and divide this number by the
+                //  size of a single palette  element. Assuming that your code
+                //  is compiled using 1-byte structure element alignment, the
+                //  calculation is:
+                //
+                //   NumberOfEntries = (BitmapOffset
+                //                      - sizeof(WINBMPFILEHEADER)
+                //                      - sizeof(WIN2XBITMAPHEADER))
+                //                   / sizeof(WIN2XPALETTEELEMENT);"
+
+                /*
+                const uint32_t decl =
+                        infoHeader.colorsUsed != 0 ? infoHeader.colorsUsed :
+                        infoHeader.bitsPerPixel == 1 ? 2 :
+                        infoHeader.bitsPerPixel == 2 ? 4 :
+                        infoHeader.bitsPerPixel == 4 ? 16 :
+                        infoHeader.bitsPerPixel == 8 ? 256 : 0;
+                */
+
+                const uint32_t
+                        headersSize = BitmapHeader::size_in_file +
+                                      infoHeader.infoHeaderSize,
+                        tableSize = header.dataOffset - headersSize,
+                        elemSize = isFourChannel(v) ? 4 : 3;
+                return tableSize / elemSize;
         }
 };
 inline
@@ -252,9 +297,11 @@ std::ostream& operator<< (std::ostream &os, Color32 const &v) {
 inline
 std::ostream& operator<< (std::ostream &os, BitmapColorTable const &v) {
         os << "ColorTable{\n";
-        for (int i=0; i!=v.size(); ++i) {
-                os << "  [" << std::setw(3) << i << "]:" << v[i] << "\n";
-        }
+
+        //for (int i=0; i!=v.size(); ++i) {
+        //        os << "  [" << std::setw(3) << i << "]:" << v[i] << "\n";
+        //}
+        os << "  size:" << v.size() << "\n";
         os << "}\n";
         return os;
 }
@@ -291,9 +338,13 @@ struct BitmapColorMasks {
 inline
 std::ostream& operator<< (std::ostream &os, BitmapColorMasks const &v) {
         return os << "ColorMask{\n"
-                  << "  red..:" << std::bitset<32>(v.red) << "\n"
-                  << "  green:" << std::bitset<32>(v.green) << "\n"
-                  << "  blue.:" << std::bitset<32>(v.blue) << "\n"
+                  << "  red..:" << std::bitset<32>(v.red) << " / 0x"
+                                << std::hex << v.red << "\n"
+                  << "  green:" << std::bitset<32>(v.green) << " / 0x"
+                                << std::hex << v.green << "\n"
+                  << "  blue.:" << std::bitset<32>(v.blue) << " / 0x"
+                                << std::hex << v.blue << "\n"
+                                << std::dec
                   << "}\n";
 }
 
@@ -308,26 +359,30 @@ struct ChunkLayout {
 
         ChunkLayout() {}
 
-        explicit ChunkLayout(BitmapInfoHeader const &infoHeader) :
-                chunk_width(infoHeader.bitsPerPixel > 8 ? infoHeader.bitsPerPixel : 8),
-                pixel_width(infoHeader.bitsPerPixel),
-                pixels_per_chunk(chunk_width / pixel_width),
-                bytes_per_chunk(chunk_width / 8),
-                pixel_mask((1U << pixel_width) - 1U), // TODO: This may fail for large types
-                nonsignificant_bits(chunk_width % pixel_width),
-                little_endian((pixel_width == 16) ? false : true)
-        {
+        explicit ChunkLayout(BitmapInfoHeader const &infoHeader) {
+                reset(infoHeader.bitsPerPixel > 8 ? infoHeader.bitsPerPixel : 8,
+                      infoHeader.bitsPerPixel);
         }
 
-        ChunkLayout(uint32_t chunk_width, uint32_t pixel_width) :
-                chunk_width(chunk_width),
-                pixel_width(pixel_width),
-                pixels_per_chunk(chunk_width / pixel_width),
-                bytes_per_chunk(chunk_width / 8),
-                pixel_mask((1U << pixel_width) - 1U), // TODO: This may fail for large types
-                nonsignificant_bits(chunk_width % pixel_width),
-                little_endian((pixel_width == 16) ? false : true)
-        { }
+        ChunkLayout(uint32_t chunk_width, uint32_t pixel_width) {
+                reset(chunk_width, pixel_width);
+        }
+
+        void reset(uint32_t chunk_width_, uint32_t pixel_width_) {
+                chunk_width = chunk_width_;
+                pixel_width = pixel_width_;
+                pixels_per_chunk = chunk_width / pixel_width;
+                bytes_per_chunk = chunk_width / 8;
+                pixel_mask = uint32_t((uint64_t(1) << uint64_t(pixel_width)) - uint64_t(1));
+                nonsignificant_bits = chunk_width % pixel_width;
+                little_endian = false;//(pixel_width == 16) ? false : true;
+
+                // https://www.fileformat.info/format/bmp/egff.htm ->
+                //   16 bit + Win NT --> big endian
+                //   16 bit + v4 BMP --> little endian
+                //   32 bit + v4 BMP --> little endian
+                //
+        }
 
 
         // -- functions ------------------------------------------------
@@ -371,8 +426,6 @@ struct ChunkLayout {
                         bits_kept    = chunk         & keep_mask,
                         bits_renewed = (val<<rshift) & renew_mask,
                         new_chunk = bits_kept | bits_renewed;
-                //std::cout << std::bitset<32>(keep_mask) << " | " << std::bitset<32>(pixel_mask<<rshift) << std::endl;
-                //std::cout << std::bitset<4>(val) << " => " << std::bitset<32>(chunk) << " -> " << std::bitset<32>(new_chunk) << std::endl;
                 return new_chunk;
         }
 };
@@ -717,12 +770,12 @@ public:
 
                 has_alpha_(),
 
-                b_shift_(0), b_mask_(0),
-                g_shift_(0), g_mask_(0),
-                r_shift_(0), r_mask_(0),
-                a_shift_(0), a_mask_(0),
+                b_shift_(0), b_mask_(0), b_width_(0),
+                g_shift_(0), g_mask_(0), g_width_(0),
+                r_shift_(0), r_mask_(0), r_width_(0),
+                a_shift_(0), a_mask_(0), a_width_(0),
 
-                valid_(0),
+                valid_(false),
                 bitmapVersion_(BMPv_Unknown)
         { }
 
@@ -830,7 +883,7 @@ public:
         std::ostream& operator<< (std::ostream &os, Bitmap const &v) {
                 os << v.header_;
                 os << v.infoHeader_;
-                if (true) {
+                if (false) {
                         if (v.colorTable_.empty())
                                 os << "ColorTable:<empty>\n";
                         else
@@ -848,7 +901,13 @@ public:
                    << "alpha:" << (v.has_alpha()?"yes":"no") << "\n"
                    << "valid:" << (v.valid()?"yes":"no") << "\n"
                    << "square pixels:" << (v.has_square_pixels()?"yes":"no") << "\n"
-                   << "bitmap version:" << v.version() << "\n";
+                   << "bitmap version:" << v.version() << "\n"
+                   << "mask r:" << std::bitset<32>(v.r_mask_<<v.r_shift_) << ", r_width_:" << v.r_width_ << "\n"
+                   << "mask g:" << std::bitset<32>(v.g_mask_<<v.g_shift_) << ", g_width_:" << v.g_width_ << "\n"
+                   << "mask b:" << std::bitset<32>(v.b_mask_<<v.b_shift_) << ", b_width_:" << v.b_width_ << "\n"
+                   << "mask a:" << std::bitset<32>(v.a_mask_<<v.a_shift_) << ", a_width_:" << v.a_width_ << "\n"
+                   << ChunkLayout(v.infoHeader_) << "\n"
+                ;
                 return os;
         }
 private:
@@ -869,167 +928,8 @@ private:
         bool valid_;
         BitmapVersion bitmapVersion_;
 
-        bool reset(std::istream &f, bool exceptions) {
-                reset();
-
-                // load bmp file
-                header_.reset(f);
-                const auto headerPos = f.tellg();
-                infoHeader_.reset(f);
-                bitmapVersion_ = determineBitmapVersion(header_, infoHeader_);
-                f.seekg(headerPos);
-
-                switch (infoHeader_.compression) {
-                case BI_RGB:
-                case BI_RLE8:
-                case BI_RLE4:
-                case BI_BITFIELDS:
-                        break;
-                case BI_JPEG:
-                case BI_PNG:
-                case BI_CMYK:
-                case BI_CMYKRLE8:
-                case BI_CMYKRLE4:
-                default:
-                        if (exceptions) {
-                                throw exceptions::unsupported_bitmap_compression(
-                                        infoHeader_.compression,
-                                        to_string(infoHeader_.compression));
-                        } else {
-                                return false;
-                        }
-                }
-
-                f.seekg(infoHeader_.infoHeaderSize, std::ios_base::cur);
-                colorTable_.reset(infoHeader_, bitmapVersion_, f);
-                colorMask_.reset(infoHeader_, f);
-                imageData_.reset(header_, infoHeader_, f);
-
-                // set bitmasks
-                if (infoHeader_.compression == BI_BITFIELDS) {
-                        // TODO: signal error on bitfields with non-contiguous 1-sequences
-                        a_shift_ = 0;
-                        b_shift_ = first_bit_set_uint32(colorMask_.blue);
-                        g_shift_ = first_bit_set_uint32(colorMask_.green);
-                        r_shift_ = first_bit_set_uint32(colorMask_.red);
-
-                        a_mask_ = 0x0;
-                        b_mask_ = colorMask_.blue >> b_shift_;
-                        g_mask_ = colorMask_.green >> g_shift_;
-                        r_mask_ = colorMask_.red  >> r_shift_;
-
-                        a_width_ = 0;
-                        b_width_ = 1 + last_bit_set_uint32(colorMask_.blue) - b_shift_;
-                        g_width_ = 1 + last_bit_set_uint32(colorMask_.green) - g_shift_;
-                        r_width_ = 1 + last_bit_set_uint32(colorMask_.red) - r_shift_;
-
-                        std::cout << "b_shift:" << b_shift_ << ", b_width:" << b_width_ << "\n";
-                        std::cout << "g_shift:" << g_shift_ << ", g_width:" << g_width_ << "\n";
-                        std::cout << "r_shift:" << r_shift_ << ", r_width:" << r_width_ << "\n";
-                } else switch (bpp()) {
-                case 16:
-                        a_mask_ = 0x0;
-                        b_mask_ = 0b11111;
-                        g_mask_ = 0b11111;
-                        r_mask_ = 0b11111;
-                        a_shift_ = 0;
-                        b_shift_ = 0;
-                        g_shift_ = 5;
-                        r_shift_ = 10;
-                        a_width_ = 0;
-                        b_width_ = 5;
-                        g_width_ = 5;
-                        r_width_ = 5;
-                        break;
-                case 24:
-                        a_mask_ = 0x0;
-                        b_mask_ = 0xFF;
-                        g_mask_ = 0xFF;
-                        r_mask_ = 0xFF;
-                        a_shift_ = 0;
-                        b_shift_ = 16;
-                        g_shift_ = 8;
-                        r_shift_ = 0;
-                        a_width_ = 0;
-                        b_width_ = 8;
-                        g_width_ = 8;
-                        r_width_ = 8;
-                        break;
-                case 32:
-                        a_mask_ = 0xFF;
-                        b_mask_ = 0xFF;
-                        g_mask_ = 0xFF;
-                        r_mask_ = 0xFF;
-                        a_shift_ = 24;
-                        b_shift_ = 16;
-                        g_shift_ = 8;
-                        r_shift_ = 0;
-                        a_width_ = 8;
-                        b_width_ = 8;
-                        g_width_ = 8;
-                        r_width_ = 8;
-                        break;
-                default:
-                        a_mask_ = 0x0;
-                        b_mask_ = 0x0;
-                        g_mask_ = 0x0;
-                        r_mask_ = 0x0;
-                        a_shift_ = 0;
-                        b_shift_ = 0;
-                        g_shift_ = 0;
-                        r_shift_ = 0;
-                        a_width_ = 0;
-                        b_width_ = 0;
-                        g_width_ = 0;
-                        r_width_ = 0;
-                        break;
-                }
-
-                // detect alpha (non-standard; in ICO files, transparency is
-                // defined if any "reserved" value is non-zero)
-                has_alpha_ = false;
-                if (is_rgb()) {
-                        for (int y = 0; y < height(); ++y) {
-                                for (int x = 0; x < width(); ++x) {
-                                        const uint32_t raw = imageData_.get32(x, y);
-                                        const Color32 col = rawToColor32(raw);
-                                        if (col.a() != 0) {
-                                                has_alpha_ = true;
-                                                break;
-                                        }
-                                }
-                                if (has_alpha_)
-                                        break;
-                        }
-                }
-
-                valid_ = true;
-                return true;
-        }
-
-        Color32 rawToColor32(uint32_t raw) const {
-                const uint8_t
-                        b = static_cast<uint8_t>((raw >> b_shift_) & b_mask_),
-                        g = static_cast<uint8_t>((raw >> g_shift_) & g_mask_),
-                        r = static_cast<uint8_t>((raw >> r_shift_) & r_mask_),
-                        a = static_cast<uint8_t>((raw >> a_shift_) & a_mask_)
-                ;
-                const uint8_t
-                        b8 = b << (8-b_width_),
-                        g8 = g << (8-g_width_),
-                        r8 = r << (8-r_width_),
-                        a8 = a << (8-a_width_)
-                ;
-                const Color32 ret = Color32(r8, g8, b8, a8);
-                /*
-                std::cout << "raw:[" << std::bitset<8>((raw>>8)&0xFF) << "," << std::bitset<8>(raw&0xFF) << "]"
-                          << ", Color32:[" << std::bitset<5>(r) << "," << std::bitset<5>(g) << "," << std::bitset<5>(b) << "]" << "\n";*/
-                return ret;
-        }
-
 private:
-        static
-        BitmapVersion determineBitmapVersion(
+        static BitmapVersion determineBitmapVersion(
                 BitmapHeader const &header,
                 BitmapInfoHeader const &infoHeader
         ) {
@@ -1067,9 +967,178 @@ private:
                         // .BMP? .ICO? .PTR?
                         throw std::logic_error("not implemented");
                 }
-
-
                 return BMPv_Unknown;
+        }
+
+        static bool compressionSupported(BitmapCompression v) {
+                switch (v) {
+                case BI_RGB:
+                case BI_RLE8:
+                case BI_RLE4:
+                case BI_BITFIELDS:
+                        return true;
+                case BI_JPEG:
+                case BI_PNG:
+                case BI_CMYK:
+                case BI_CMYKRLE8:
+                case BI_CMYKRLE4:
+                default:
+                        return false;
+                }
+        }
+
+        bool reset(std::istream &f, bool exceptions) {
+                reset();
+
+                loadHeadersAndVersion(f);
+
+                if (!compressionSupported(infoHeader_.compression)) {
+                        if (exceptions) {
+                                throw exceptions::unsupported_bitmap_compression(
+                                        infoHeader_.compression,
+                                        to_string(infoHeader_.compression));
+                        } else {
+                                return false;
+                        }
+                }
+
+                initBitmasks(f);
+                colorTable_.reset(header_, infoHeader_, bitmapVersion_, f);
+                imageData_.reset(header_, infoHeader_, f);
+                initAlpha();
+
+                valid_ = true;
+                return true;
+        }
+
+        Color32 rawToColor32(uint32_t raw) const {
+                const uint8_t
+                        b = static_cast<uint8_t>((raw >> b_shift_) & b_mask_),
+                        g = static_cast<uint8_t>((raw >> g_shift_) & g_mask_),
+                        r = static_cast<uint8_t>((raw >> r_shift_) & r_mask_),
+                        a = static_cast<uint8_t>((raw >> a_shift_) & a_mask_)
+                ;
+                const uint8_t
+                        b8 = b << (8-b_width_),
+                        g8 = g << (8-g_width_),
+                        r8 = r << (8-r_width_),
+                        a8 = a << (8-a_width_)
+                ;
+                const Color32 ret = Color32(r8, g8, b8, a8);
+                /*
+                std::cout << "raw:[" << std::bitset<8>((raw>>8)&0xFF) << "," << std::bitset<8>(raw&0xFF) << "]"
+                          << ", Color32:[" << std::bitset<5>(r) << "," << std::bitset<5>(g) << "," << std::bitset<5>(b) << "]" << "\n";*/
+                return ret;
+        }
+
+        void loadHeadersAndVersion(std::istream &f) {
+                header_.reset(f);
+                const auto headerPos = f.tellg();
+                infoHeader_.reset(f);
+                bitmapVersion_ = determineBitmapVersion(header_, infoHeader_);
+                f.seekg(headerPos);
+                f.seekg(infoHeader_.infoHeaderSize, std::ios_base::cur);
+        }
+
+        void initBitmasks(std::istream &f) {
+                colorMask_.reset(infoHeader_, f);
+
+                if (infoHeader_.compression == BI_BITFIELDS) {
+                        // TODO: signal error on bitfields with non-contiguous 1-sequences
+                        a_shift_ = 0;
+                        b_shift_ = first_bit_set_uint32(colorMask_.blue);
+                        g_shift_ = first_bit_set_uint32(colorMask_.green);
+                        r_shift_ = first_bit_set_uint32(colorMask_.red);
+
+                        a_mask_ = 0x0;
+                        b_mask_ = colorMask_.blue >> b_shift_;
+                        g_mask_ = colorMask_.green >> g_shift_;
+                        r_mask_ = colorMask_.red >> r_shift_;
+
+                        a_width_ = 0;
+                        b_width_ = 1 + last_bit_set_uint32(colorMask_.blue) - b_shift_;
+                        g_width_ = 1 + last_bit_set_uint32(colorMask_.green) - g_shift_;
+                        r_width_ = 1 + last_bit_set_uint32(colorMask_.red) - r_shift_;
+                } else {
+                        switch (bpp()) {
+                        case 16:
+                                a_mask_ = 0x0;
+                                b_mask_ = 0b11111;
+                                g_mask_ = 0b11111;
+                                r_mask_ = 0b11111;
+                                a_shift_ = 0;
+                                b_shift_ = 0;
+                                g_shift_ = 5;
+                                r_shift_ = 10;
+                                a_width_ = 0;
+                                b_width_ = 5;
+                                g_width_ = 5;
+                                r_width_ = 5;
+                                break;
+                        case 24:
+                                a_mask_ = 0x0;
+                                b_mask_ = 0xFF;
+                                g_mask_ = 0xFF;
+                                r_mask_ = 0xFF;
+                                a_shift_ = 0;
+                                b_shift_ = 16;
+                                g_shift_ = 8;
+                                r_shift_ = 0;
+                                a_width_ = 0;
+                                b_width_ = 8;
+                                g_width_ = 8;
+                                r_width_ = 8;
+                                break;
+                        case 32:
+                                a_mask_ = 0xFF;
+                                b_mask_ = 0xFF;
+                                g_mask_ = 0xFF;
+                                r_mask_ = 0xFF;
+                                a_shift_ = 24;
+                                b_shift_ = 16;
+                                g_shift_ = 8;
+                                r_shift_ = 0;
+                                a_width_ = 8;
+                                b_width_ = 8;
+                                g_width_ = 8;
+                                r_width_ = 8;
+                                break;
+                        default:
+                                a_mask_ = 0x0;
+                                b_mask_ = 0x0;
+                                g_mask_ = 0x0;
+                                r_mask_ = 0x0;
+                                a_shift_ = 0;
+                                b_shift_ = 0;
+                                g_shift_ = 0;
+                                r_shift_ = 0;
+                                a_width_ = 0;
+                                b_width_ = 0;
+                                g_width_ = 0;
+                                r_width_ = 0;
+                                break;
+                        }
+                }
+        }
+
+        void initAlpha() {
+                // detect alpha (non-standard; in ICO files, transparency is
+                // defined if any "reserved" value is non-zero)
+                has_alpha_ = false;
+                if (is_rgb()) {
+                        for (int y = 0; y < height(); ++y) {
+                                for (int x = 0; x < width(); ++x) {
+                                        const uint32_t raw = imageData_.get32(x, y);
+                                        const Color32 col = rawToColor32(raw);
+                                        if (col.a() != 0) {
+                                                has_alpha_ = true;
+                                                break;
+                                        }
+                                }
+                                if (has_alpha_)
+                                        break;
+                        }
+                }
         }
 };
 

@@ -91,7 +91,8 @@ uint32_t extract_value_uint32(
                 chunk_width = 32,
                 values_per_chunk = chunk_width / bits_per_value,
                 rshift = ofs * bits_per_value,
-                value_mask = (1U << bits_per_value) - 1U,
+                value_mask = uint32_t((uint64_t(1U) << uint64_t(bits_per_value))
+                             - uint64_t(1U)),
                 value = (chunk >> rshift) & value_mask;
         return value;
 }
