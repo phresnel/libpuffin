@@ -17,6 +17,7 @@
 
 namespace puffin { namespace impl {
 
+
 enum BitmapCompression {
         BI_RGB = 0x0000,
         BI_RLE8 = 0x0001,
@@ -48,6 +49,96 @@ std::ostream& operator<< (std::ostream &os, BitmapCompression bc) {
         return os << to_string(bc);
 }
 
+
+std::set<BitmapVersion> determineBitmapVersion(std::istream &f) {
+        // "The FileType field of the file header is where we start. If
+        //  these two byte values are 424Dh ("BM"), then you have a
+        //  single-image BMP file that may have been created under
+        //  Windows or OS/2. If FileType is the value 4142h ("BA"), then
+        //  you have an OS/2 bitmap array file. Other OS/2 BMP
+        //  variations have the file extensions .ICO and .PTR.
+        //
+        //  If your file type is "BM", then you must now read the Size
+        //  field of the bitmap header to determine the version of the
+        //  file. Size will be 12 for Windows 2.x BMP and OS/2 1.x BMP,
+        //  40 for Windows 3.x and Windows NT BMP, 12 to 64 for OS/2 2.x
+        //  BMP, and 108 for Windows 4.x BMP. A Windows NT BMP file will
+        //  always have a Compression value of 3; otherwise, it is read
+        //  as a Windows 3.x BMP file.
+        //
+        //  Note that the only difference between Windows 2.x BMP and
+        //  OS/2 1.x BMP is the data type of the Width and Height
+        //  fields. For Windows 2.x, they are signed shorts and for
+        //  OS/2 1.x, they are unsigned shorts. Windows 3.x, Windows NT,
+        //  and OS/2 2.x BMP files only vary in the number of fields in
+        //  the bitmap header and in the interpretation of the
+        //  Compression field."
+
+        const std::ostream::pos_type startPos = f.tellg();
+        f.seekg(0, std::ios_base::beg);
+
+        std::set<BitmapVersion> ret;
+
+        const uint16_t signature = impl::read_uint16_be(f);
+
+        switch (signature) {
+        // ---------------------------------------------------------------------
+        case 0x0000: {
+                ret.insert(BMPv_Win_1x);
+                break;
+        }
+        // -- 'BM' -------------------------------------------------------------
+        case 0x424d: {
+                f.seekg(14, std::ios_base::beg);
+                const uint32_t infoHeaderSize = impl::read_uint32_le(f);
+
+                switch (infoHeaderSize) {
+                // -- [Windows 2.x] or [OS/2 1.x]   --  --  --  --  --  --  --
+                case 12: {
+                        // signed width/height for Win 2.x, unsigned for OS2 1.x
+                        ret.insert(BMPv_Win_2x);
+                        ret.insert(BMPv_OS2_1x);
+                        break;
+                }
+                // -- [Windows 3.x] or [Windows NT] --  --  --  --  --  --  --
+                case 40: {
+                        f.seekg(12, std::ios_base::cur);
+                        const uint32_t compression =
+                                static_cast<BitmapCompression>(
+                                        impl::read_uint32_le(f));
+                        ret.insert(BMPv_Win_3x);
+                        // It can only be NT if compression is BITFIELDS:
+                        if (compression == BI_BITFIELDS)
+                                ret.insert(BMPv_WinNT);
+                        break;
+                }
+                // -- [Windows 4.x] --  --  --  --  --  --  --  --  --  --  --
+                case 108: {
+                        //
+                        ret.insert(BMPv_Win_4x);
+                        break;
+                }
+                // -- [OS/2 2.x] -  --  --  --  --  --  --  --  --  --  --  --
+                default:
+                        if (infoHeaderSize >= 12 && infoHeaderSize <= 64) {
+                                ret.insert(BMPv_OS2_2x);
+                        }
+                        break;
+                };
+                break;
+        }
+        // -- 'BA' -------------------------------------------------------------
+        case 0x4241: {
+                // OS/2 Bitmap Array
+                throw std::logic_error("not implemented");
+                break;
+        }
+        };
+        if (ret.size() == 0)
+                ret.insert(BMPv_Unknown);
+        f.seekg(startPos);
+        return ret;
+}
 
 
 // Corresponds to BITMAPFILEHEADER on Windows.
@@ -131,22 +222,39 @@ struct BitmapInfoHeader {
                 importantColors(0),
                 isBottomUp(0) {}
 
-        BitmapInfoHeader(/*BitmapHeader const &header, */std::istream &f) {
-                reset(f);
+        BitmapInfoHeader(std::set<BitmapVersion> const &v, std::istream &f) {
+                reset(v, f);
         }
 
-        void reset(std::istream &f) {
-                infoHeaderSize = impl::read_uint32_le(f);
-                width = impl::read_uint32_le(f);
-                height = impl::read_int32_le(f);
-                planes = impl::read_uint16_le(f);
-                bitsPerPixel = impl::read_uint16_le(f);
-                compression = static_cast<BitmapCompression >(impl::read_uint32_le(f));
-                compressedImageSize = impl::read_uint32_le(f);
-                xPixelsPerMeter = impl::read_uint32_le(f);
-                yPixelsPerMeter = impl::read_uint32_le(f);
-                colorsUsed = impl::read_uint32_le(f);
-                importantColors = impl::read_uint32_le(f);
+        void reset() {
+                using std::swap;
+                BitmapInfoHeader tmp;
+                swap(*this, tmp);
+        }
+
+        void reset(std::set<BitmapVersion> const &v, std::istream &f) {
+                reset();
+                const bool is_win2 = v.find(BMPv_OS2_1x) != v.end()
+                                  || v.find(BMPv_Win_2x) != v.end();
+                if (is_win2) {
+                        infoHeaderSize = impl::read_uint32_le(f);
+                        width = impl::read_uint16_le(f);
+                        height = impl::read_int16_le(f);
+                        planes = impl::read_uint16_le(f);
+                        bitsPerPixel = impl::read_uint16_le(f);
+                } else {
+                        infoHeaderSize = impl::read_uint32_le(f);
+                        width = impl::read_uint32_le(f);
+                        height = impl::read_int32_le(f);
+                        planes = impl::read_uint16_le(f);
+                        bitsPerPixel = impl::read_uint16_le(f);
+                        compression = static_cast<BitmapCompression>(impl::read_uint32_le(f));
+                        compressedImageSize = impl::read_uint32_le(f);
+                        xPixelsPerMeter = impl::read_uint32_le(f);
+                        yPixelsPerMeter = impl::read_uint32_le(f);
+                        colorsUsed = impl::read_uint32_le(f);
+                        importantColors = impl::read_uint32_le(f);
+                }
 
                 if (height >= 0) {
                         isBottomUp = true;
@@ -910,74 +1018,6 @@ private:
         std::set<BitmapVersion> bitmapVersion_;
 
 private:
-        static std::set<BitmapVersion> determineBitmapVersion(
-                BitmapHeader const &header,
-                BitmapInfoHeader const &infoHeader
-        ) {
-                // "The FileType field of the file header is where we start. If
-                //  these two byte values are 424Dh ("BM"), then you have a
-                //  single-image BMP file that may have been created under
-                //  Windows or OS/2. If FileType is the value 4142h ("BA"), then
-                //  you have an OS/2 bitmap array file. Other OS/2 BMP
-                //  variations have the file extensions .ICO and .PTR.
-                //
-                //  If your file type is "BM", then you must now read the Size
-                //  field of the bitmap header to determine the version of the
-                //  file. Size will be 12 for Windows 2.x BMP and OS/2 1.x BMP,
-                //  40 for Windows 3.x and Windows NT BMP, 12 to 64 for OS/2 2.x
-                //  BMP, and 108 for Windows 4.x BMP. A Windows NT BMP file will
-                //  always have a Compression value of 3; otherwise, it is read
-                //  as a Windows 3.x BMP file.
-                //
-                //  Note that the only difference between Windows 2.x BMP and
-                //  OS/2 1.x BMP is the data type of the Width and Height
-                //  fields. For Windows 2.x, they are signed shorts and for
-                //  OS/2 1.x, they are unsigned shorts. Windows 3.x, Windows NT,
-                //  and OS/2 2.x BMP files only vary in the number of fields in
-                //  the bitmap header and in the interpretation of the
-                //  Compression field."
-                std::set<BitmapVersion> ret;
-                switch (header.signature) {
-                case 'BM':
-                        // Windows or OS/2
-                        switch (infoHeader.infoHeaderSize) {
-                        case 12:
-                                // [Windows 2.x] -> width/height signed
-                                // [OS/2 1.x]    -> width/height unsigned
-                                ret.insert(BMPv_Win_2x);
-                                ret.insert(BMPv_OS2_1x);
-                                break;
-                        case 40:
-                                // [Windows 3.x]
-                                // [Windows NT]  -> compression must be 3,
-                                //                  otherwise handled as Win 3.x
-                                ret.insert(BMPv_Win_3x);
-                                if (infoHeader.compression == BI_BITFIELDS)
-                                        ret.insert(BMPv_WinNT);
-                                break;
-                        case 108:
-                                // [Windows 4.x]
-                                ret.insert(BMPv_Win_4x);
-                                break;
-                        default:
-                                if (infoHeader.infoHeaderSize >= 12 &&
-                                    infoHeader.infoHeaderSize <= 64) {
-                                        // [OS/2 2.x]
-                                        ret.insert(BMPv_OS2_2x);
-                                }
-                                break;
-                        };
-                        break;
-                case 'BA':
-                        // OS/2 Bitmap Array
-                        throw std::logic_error("not implemented");
-                        break;
-                };
-                if (ret.size() == 0)
-                        ret.insert(BMPv_Unknown);
-                return ret;
-        }
-
         static bool compressionSupported(BitmapCompression v) {
                 switch (v) {
                 case BI_RGB:
@@ -998,7 +1038,8 @@ private:
         bool reset(std::istream &f, bool exceptions) {
                 reset();
 
-                loadHeadersAndVersion(f);
+                bitmapVersion_ = determineBitmapVersion(f);
+                loadHeaders(f);
 
                 if (!compressionSupported(infoHeader_.compression)) {
                         if (exceptions) {
@@ -1039,11 +1080,10 @@ private:
                 return ret;
         }
 
-        void loadHeadersAndVersion(std::istream &f) {
+        void loadHeaders(std::istream &f) {
                 header_.reset(f);
                 const auto headerPos = f.tellg();
-                infoHeader_.reset(f);
-                bitmapVersion_ = determineBitmapVersion(header_, infoHeader_);
+                infoHeader_.reset(bitmapVersion_, f);
                 f.seekg(headerPos);
                 f.seekg(infoHeader_.infoHeaderSize, std::ios_base::cur);
         }

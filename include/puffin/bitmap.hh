@@ -22,6 +22,7 @@ namespace puffin {
 enum BitmapVersion {
         BMPv_Unknown = 0,
 
+        BMPv_Win_1x, // DDB
         BMPv_Win_2x,
         BMPv_Win_3x,
         BMPv_Win_4x,

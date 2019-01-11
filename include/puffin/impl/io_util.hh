@@ -13,6 +13,9 @@ inline uint16_t read_uint16_le(std::istream &f) {
         return read_uint8_le(f) |
                static_cast<uint16_t>(read_uint8_le(f)) << 8;
 }
+inline int16_t read_int16_le(std::istream &f) {
+        return static_cast<int16_t>(read_uint16_le(f));
+}
 inline uint32_t read_uint32_le(std::istream &f) {
         return read_uint16_le(f) |
                static_cast<uint32_t>(read_uint16_le(f)) << 16;
