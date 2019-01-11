@@ -13,6 +13,7 @@
 #include <iomanip>
 #include <vector>
 #include <bitset>
+#include <set>
 
 namespace puffin { namespace impl {
 
@@ -181,7 +182,7 @@ struct BitmapColorTable {
         BitmapColorTable(
                 BitmapHeader const &header,
                 BitmapInfoHeader const &infoHeader,
-                BitmapVersion v,
+                std::set<BitmapVersion> const &v,
                 std::istream &f
         ) {
                 reset(header, infoHeader, v, f);
@@ -190,7 +191,7 @@ struct BitmapColorTable {
         void reset(
                 BitmapHeader const &header,
                 BitmapInfoHeader const &infoHeader,
-                BitmapVersion v,
+                std::set<BitmapVersion> const &v,
                 std::istream &f
         ) {
                 entries_ = readEntries(header, infoHeader, v, f);
@@ -218,7 +219,7 @@ private:
         static std::vector<Color32> readEntries(
                 BitmapHeader const &header,
                 BitmapInfoHeader const &infoHeader,
-                BitmapVersion v,
+                std::set<BitmapVersion> const &v,
                 std::istream &f
         ) {
                 const uint32_t size = computeSize(header, infoHeader, v);
@@ -238,38 +239,18 @@ private:
                 return ret;
         }
 
-        static bool isFourChannel(BitmapVersion v) {
-                // TODO: "You must be sure to check the Size field of the bitmap
-                //        header to know if you are reading 3-byte or 4-byte
-                //        color palette elements. A Size value of 12 indicates a
-                //        Windows 2.x (or possibly an OS/2 1.x) BMP file with
-                //        3-byte elements. Larger numbers (such as 40 and 108)
-                //        indicate later versions of BMP, which all use 4-byte
-                //        color palette elements."
-                if (v == BMPv_Windows2)
-                        return false;
-                return true;
+        static bool isFourChannel(std::set<BitmapVersion> const &v) {
+                const bool not_win_2 = v.find(BMPv_Win_2x) == v.end(),
+                           not_os2_1 = v.find(BMPv_OS2_1x) == v.end();
+                return not_win_2 && not_os2_1;
+
         }
 
         static uint32_t computeSize(
                 BitmapHeader const &header,
                 BitmapInfoHeader const &infoHeader,
-                BitmapVersion v
+                std::set<BitmapVersion> const &v
         ) {
-                // See http://www.fileformat.info/format/bmp/egff.htm:
-                // "To detect the presence of a color palette in a BMP file
-                //  (rather than just assuming that a color palette does exist),
-                //  you can calculate the number of bytes between the bitmap
-                //  header and the bitmap data and divide this number by the
-                //  size of a single palette  element. Assuming that your code
-                //  is compiled using 1-byte structure element alignment, the
-                //  calculation is:
-                //
-                //   NumberOfEntries = (BitmapOffset
-                //                      - sizeof(WINBMPFILEHEADER)
-                //                      - sizeof(WIN2XBITMAPHEADER))
-                //                   / sizeof(WIN2XPALETTEELEMENT);"
-
                 /*
                 const uint32_t decl =
                         infoHeader.colorsUsed != 0 ? infoHeader.colorsUsed :
@@ -776,7 +757,7 @@ public:
                 a_shift_(0), a_mask_(0), a_width_(0),
 
                 valid_(false),
-                bitmapVersion_(BMPv_Unknown)
+                bitmapVersion_()
         { }
 
         Bitmap(std::istream &f) {
@@ -837,7 +818,7 @@ public:
                 return x_pixels_per_meter() == y_pixels_per_meter();
         }
 
-        BitmapVersion version() const {
+        std::set<BitmapVersion> version() const {
                 return bitmapVersion_;
         }
 
@@ -926,10 +907,10 @@ private:
         uint32_t a_shift_, a_mask_, a_width_;
 
         bool valid_;
-        BitmapVersion bitmapVersion_;
+        std::set<BitmapVersion> bitmapVersion_;
 
 private:
-        static BitmapVersion determineBitmapVersion(
+        static std::set<BitmapVersion> determineBitmapVersion(
                 BitmapHeader const &header,
                 BitmapInfoHeader const &infoHeader
         ) {
@@ -955,19 +936,46 @@ private:
                 //  and OS/2 2.x BMP files only vary in the number of fields in
                 //  the bitmap header and in the interpretation of the
                 //  Compression field."
+                std::set<BitmapVersion> ret;
                 switch (header.signature) {
-                case 0x424d: // 'BM'
+                case 'BM':
+                        // Windows or OS/2
                         switch (infoHeader.infoHeaderSize) {
-                        case 12: return BMPv_Windows2;
-                        case 40: return BMPv_Windows3;
-                        case 108: return BMPv_Windows4;
+                        case 12:
+                                // [Windows 2.x] -> width/height signed
+                                // [OS/2 1.x]    -> width/height unsigned
+                                ret.insert(BMPv_Win_2x);
+                                ret.insert(BMPv_OS2_1x);
+                                break;
+                        case 40:
+                                // [Windows 3.x]
+                                // [Windows NT]  -> compression must be 3,
+                                //                  otherwise handled as Win 3.x
+                                ret.insert(BMPv_Win_3x);
+                                if (infoHeader.compression == BI_BITFIELDS)
+                                        ret.insert(BMPv_WinNT);
+                                break;
+                        case 108:
+                                // [Windows 4.x]
+                                ret.insert(BMPv_Win_4x);
+                                break;
+                        default:
+                                if (infoHeader.infoHeaderSize >= 12 &&
+                                    infoHeader.infoHeaderSize <= 64) {
+                                        // [OS/2 2.x]
+                                        ret.insert(BMPv_OS2_2x);
+                                }
+                                break;
                         };
                         break;
-                case 0x4241: // 'BA'
-                        // .BMP? .ICO? .PTR?
+                case 'BA':
+                        // OS/2 Bitmap Array
                         throw std::logic_error("not implemented");
-                }
-                return BMPv_Unknown;
+                        break;
+                };
+                if (ret.size() == 0)
+                        ret.insert(BMPv_Unknown);
+                return ret;
         }
 
         static bool compressionSupported(BitmapCompression v) {
@@ -1222,7 +1230,7 @@ bool Bitmap::has_square_pixels() const {
         return impl_->has_square_pixels();
 }
 
-BitmapVersion Bitmap::version() const {
+std::set<BitmapVersion> Bitmap::version() const {
         return impl_->version();
 }
 
@@ -1319,7 +1327,7 @@ bool InvalidBitmap::has_square_pixels() const {
         return impl_->has_square_pixels();
 }
 
-BitmapVersion InvalidBitmap::version() const {
+std::set<BitmapVersion> InvalidBitmap::version() const {
         return impl_->version();
 }
 

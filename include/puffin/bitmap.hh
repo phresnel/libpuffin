@@ -14,31 +14,49 @@
 #include <cstdint>
 #include <string>
 #include <istream>
+#include <set>
 
 namespace puffin {
 
 // TODO: de-uglify this enum. Should be just ditch C++03?
 enum BitmapVersion {
         BMPv_Unknown = 0,
-        BMPv_Os2BitmapArray_BMP,
-        BMPv_Os2BitmapArray_ICO,
-        BMPv_Os2BitmapArray_PTR,
-        BMPv_Windows2,
-        BMPv_Windows3,
-        BMPv_Windows4
+
+        BMPv_Win_2x,
+        BMPv_Win_3x,
+        BMPv_Win_4x,
+
+        BMPv_WinNT,
+
+        BMPv_OS2_1x,
+        BMPv_OS2_2x
 };
 inline
 std::ostream& operator<< (std::ostream &os, BitmapVersion v) {
         switch (v) {
         case BMPv_Unknown: return os << "BMPv_Unknown";
-        case BMPv_Os2BitmapArray_BMP: return os << "BMPv_Os2BitmapArray_BMP";
-        case BMPv_Os2BitmapArray_ICO: return os << "BMPv_Os2BitmapArray_ICO";
-        case BMPv_Os2BitmapArray_PTR: return os << "BMPv_Os2BitmapArray_PTR";
-        case BMPv_Windows2: return os << "BMPv_Windows2";
-        case BMPv_Windows3: return os << "BMPv_Windows3";
-        case BMPv_Windows4: return os << "BMPv_Windows4";
+        case BMPv_Win_2x: return os << "BMPv_Win_2x";
+        case BMPv_Win_3x: return os << "BMPv_Win_3x";
+        case BMPv_Win_4x: return os << "BMPv_Win_4x";
+        case BMPv_WinNT: return os << "BMPv_WinNT";
+        case BMPv_OS2_1x: return os << "BMPv_OS2_1x";
+        case BMPv_OS2_2x: return os << "BMPv_OS2_2x";
         }
         return os << "BMPv_<unkwn" << (int)v << ">";
+}
+inline
+std::ostream& operator<< (std::ostream &os, std::set<BitmapVersion> const& v) {
+        bool first = true;
+        for (std::set<BitmapVersion>::const_iterator it=v.begin(), end=v.end();
+             it != end; ++it
+        ) {
+                if (!first) {
+                        os << " or ";
+                }
+                os << *it;
+                first = false;
+        }
+        return os;
 }
 
 namespace impl { struct Bitmap; }
@@ -61,7 +79,7 @@ public:
         bool is_paletted() const;
         bool is_rgb() const;
         bool has_alpha() const;
-        BitmapVersion version() const;
+        std::set<BitmapVersion> version() const;
 
         unsigned int x_pixels_per_meter() const;
         unsigned int y_pixels_per_meter() const;
@@ -101,7 +119,7 @@ public:
         bool is_paletted() const;
         bool is_rgb() const;
         bool has_alpha() const;
-        BitmapVersion version() const;
+        std::set<BitmapVersion> version() const;
         bool valid() const;
 
         unsigned int x_pixels_per_meter() const;
