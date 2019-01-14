@@ -164,6 +164,18 @@ uint32_t no_bit_set_uint32(uint32_t value) {
         return value == 0;
 }
 
+template <typename T>
+inline
+T any_bit_set(T v) {
+        return v != 0;
+}
+
+template <typename T>
+inline
+T no_bit_set(T v) {
+        return v == 0;
+}
+
 inline
 uint32_t first_bit_set_uint32(uint32_t value) {
         if (no_bit_set_uint32(value))
@@ -182,6 +194,28 @@ uint32_t last_bit_set_uint32(uint32_t value) {
 
         uint32_t ret = 31;
         while(((value>>ret)&1) == 0)
+                --ret;
+        return ret;
+}
+
+template <typename T>
+inline
+T first_bit_set(T v) {
+        if (no_bit_set(v))
+                return 0;
+        uint32_t ret = 0;
+        while(((v>>ret) & 1) == 0)
+                ++ret;
+        return ret;
+}
+
+template <typename T>
+inline
+T last_bit_set(T v) {
+        if (no_bit_set(v))
+                return 0;
+        T ret = (sizeof(T)*8) - 1;
+        while(((v>>ret) & 1) == 0)
                 --ret;
         return ret;
 }

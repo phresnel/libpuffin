@@ -18,6 +18,103 @@
 namespace puffin { namespace impl {
 
 
+template <typename UintType>
+class Bitmask {
+public:
+        typedef UintType value_type;
+
+        Bitmask() {
+                reset();
+        }
+
+        explicit Bitmask(uint32_t v) {
+                reset(v);
+        }
+
+        void reset(uint32_t v = 0) {
+                shift_ = static_cast<uint8_t>(first_bit_set(v));
+                mask_ = static_cast<uint8_t>(v >> shift_);
+                width_ = static_cast<uint8_t>((1 + last_bit_set(v)) - shift_);
+        }
+
+        uint32_t extract(uint32_t raw) const {
+                const uint32_t
+                        extracted = static_cast<uint8_t>((raw >> shift_) & mask_),
+                        scaled = extracted << (sizeof(value_type)*8-width_); // TODO: unhardcode
+                return scaled;
+        }
+
+        value_type shift() const { return shift_; }
+        value_type mask() const { return mask_; }
+        value_type width() const { return width_; }
+private:
+        value_type shift_, mask_, width_;
+};
+
+template <typename ChunkType, typename ChannelType, typename ColorType>
+class RgbaBitmask {
+public:
+        typedef ChunkType             chunk_type;
+        typedef ChannelType           channel_type;
+        typedef Bitmask<channel_type> bitmask_type;
+        typedef ColorType             color_type;
+
+
+        RgbaBitmask() {}
+
+        RgbaBitmask(
+                chunk_type r_mask,
+                chunk_type g_mask,
+                chunk_type b_mask,
+                chunk_type a_mask = 0
+        ) {
+                reset(r_mask, g_mask, b_mask, a_mask);
+        }
+
+        void reset() {
+                r_.reset();
+                g_.reset();
+                b_.reset();
+                a_.reset();
+        }
+
+        void reset(
+                chunk_type r_mask,
+                chunk_type g_mask,
+                chunk_type b_mask,
+                chunk_type a_mask = 0
+        ) {
+                r_.reset(r_mask);
+                g_.reset(g_mask);
+                b_.reset(b_mask);
+                a_.reset(a_mask);
+        }
+
+        bitmask_type r() const { return r_; }
+        bitmask_type g() const { return g_; }
+        bitmask_type b() const { return b_; }
+        bitmask_type a() const { return a_; }
+
+        color_type rawToColor(chunk_type raw) const {
+                const color_type ret = color_type(
+                        static_cast<channel_type>(r_.extract(raw)),
+                        static_cast<channel_type>(g_.extract(raw)),
+                        static_cast<channel_type>(b_.extract(raw)),
+                        static_cast<channel_type>(a_.extract(raw))
+                );
+                return ret;
+        }
+
+
+private:
+        bitmask_type r_, g_, b_, a_;
+};
+
+typedef RgbaBitmask<uint32_t, uint8_t, Color32> RgbaBitmask32;
+
+
+
+
 enum BitmapCompression {
         BI_RGB = 0x0000,
         BI_RLE8 = 0x0001,
@@ -859,10 +956,7 @@ public:
 
                 has_alpha_(),
 
-                b_shift_(0), b_mask_(0), b_width_(0),
-                g_shift_(0), g_mask_(0), g_width_(0),
-                r_shift_(0), r_mask_(0), r_width_(0),
-                a_shift_(0), a_mask_(0), a_width_(0),
+                bitmask_(),
 
                 valid_(false),
                 bitmapVersion_()
@@ -937,7 +1031,7 @@ public:
 
                 const uint32_t raw = imageData_.get32(x, y);
                 if (is_rgb()) {
-                        Color32 col = rawToColor32(raw);
+                        Color32 col = bitmask_.rawToColor(raw);
                         col.a(has_alpha() ? col.a() : 255);
                         return col;
                 } else if(is_paletted()) {
@@ -960,7 +1054,7 @@ public:
 
                 const uint32_t raw = imageData_.get32(x, y);
                 if (is_rgb()) {
-                        return rawToColor32(raw);
+                        return bitmask_.rawToColor(raw);
                 } else if(is_paletted()) {
                         return colorTable_.at(raw);
                 } else {
@@ -991,10 +1085,10 @@ public:
                    << "valid:" << (v.valid()?"yes":"no") << "\n"
                    << "square pixels:" << (v.has_square_pixels()?"yes":"no") << "\n"
                    << "bitmap version:" << v.version() << "\n"
-                   << "mask r:" << std::bitset<32>(v.r_mask_<<v.r_shift_) << ", r_width_:" << v.r_width_ << "\n"
-                   << "mask g:" << std::bitset<32>(v.g_mask_<<v.g_shift_) << ", g_width_:" << v.g_width_ << "\n"
-                   << "mask b:" << std::bitset<32>(v.b_mask_<<v.b_shift_) << ", b_width_:" << v.b_width_ << "\n"
-                   << "mask a:" << std::bitset<32>(v.a_mask_<<v.a_shift_) << ", a_width_:" << v.a_width_ << "\n"
+                   << "mask r:" << std::bitset<32>(v.bitmask_.r().mask()<<v.bitmask_.r().shift()) << ", r_width_:" << (int)v.bitmask_.r().width() << "\n"
+                   << "mask g:" << std::bitset<32>(v.bitmask_.g().mask()<<v.bitmask_.g().shift()) << ", g_width_:" << (int)v.bitmask_.g().width() << "\n"
+                   << "mask b:" << std::bitset<32>(v.bitmask_.b().mask()<<v.bitmask_.b().shift()) << ", b_width_:" << (int)v.bitmask_.b().width() << "\n"
+                   << "mask a:" << std::bitset<32>(v.bitmask_.a().mask()<<v.bitmask_.a().shift()) << ", a_width_:" << (int)v.bitmask_.a().width() << "\n"
                    << ChunkLayout(v.infoHeader_) << "\n"
                 ;
                 return os;
@@ -1008,11 +1102,7 @@ private:
         impl::BitmapImageData  imageData_;
 
         bool has_alpha_;
-
-        uint32_t b_shift_, b_mask_, b_width_;
-        uint32_t g_shift_, g_mask_, g_width_;
-        uint32_t r_shift_, r_mask_, r_width_;
-        uint32_t a_shift_, a_mask_, a_width_;
+        RgbaBitmask32 bitmask_;
 
         bool valid_;
         std::set<BitmapVersion> bitmapVersion_;
@@ -1060,26 +1150,6 @@ private:
                 return true;
         }
 
-        Color32 rawToColor32(uint32_t raw) const {
-                const uint8_t
-                        b = static_cast<uint8_t>((raw >> b_shift_) & b_mask_),
-                        g = static_cast<uint8_t>((raw >> g_shift_) & g_mask_),
-                        r = static_cast<uint8_t>((raw >> r_shift_) & r_mask_),
-                        a = static_cast<uint8_t>((raw >> a_shift_) & a_mask_)
-                ;
-                const uint8_t
-                        b8 = b << (8-b_width_),
-                        g8 = g << (8-g_width_),
-                        r8 = r << (8-r_width_),
-                        a8 = a << (8-a_width_)
-                ;
-                const Color32 ret = Color32(r8, g8, b8, a8);
-                /*
-                std::cout << "raw:[" << std::bitset<8>((raw>>8)&0xFF) << "," << std::bitset<8>(raw&0xFF) << "]"
-                          << ", Color32:[" << std::bitset<5>(r) << "," << std::bitset<5>(g) << "," << std::bitset<5>(b) << "]" << "\n";*/
-                return ret;
-        }
-
         void loadHeaders(std::istream &f) {
                 header_.reset(f);
                 const auto headerPos = f.tellg();
@@ -1092,78 +1162,20 @@ private:
                 colorMask_.reset(infoHeader_, f);
 
                 if (infoHeader_.compression == BI_BITFIELDS) {
-                        // TODO: signal error on bitfields with non-contiguous 1-sequences
-                        a_shift_ = 0;
-                        b_shift_ = first_bit_set_uint32(colorMask_.blue);
-                        g_shift_ = first_bit_set_uint32(colorMask_.green);
-                        r_shift_ = first_bit_set_uint32(colorMask_.red);
-
-                        a_mask_ = 0x0;
-                        b_mask_ = colorMask_.blue >> b_shift_;
-                        g_mask_ = colorMask_.green >> g_shift_;
-                        r_mask_ = colorMask_.red >> r_shift_;
-
-                        a_width_ = 0;
-                        b_width_ = 1 + last_bit_set_uint32(colorMask_.blue) - b_shift_;
-                        g_width_ = 1 + last_bit_set_uint32(colorMask_.green) - g_shift_;
-                        r_width_ = 1 + last_bit_set_uint32(colorMask_.red) - r_shift_;
+                        bitmask_.reset(colorMask_.red, colorMask_.green, colorMask_.blue);
                 } else {
                         switch (bpp()) {
                         case 16:
-                                a_mask_ = 0x0;
-                                b_mask_ = 0b11111;
-                                g_mask_ = 0b11111;
-                                r_mask_ = 0b11111;
-                                a_shift_ = 0;
-                                b_shift_ = 0;
-                                g_shift_ = 5;
-                                r_shift_ = 10;
-                                a_width_ = 0;
-                                b_width_ = 5;
-                                g_width_ = 5;
-                                r_width_ = 5;
+                                bitmask_.reset(0x1F << 10, 0x1F << 5, 0x1F);
                                 break;
                         case 24:
-                                a_mask_ = 0x0;
-                                b_mask_ = 0xFF;
-                                g_mask_ = 0xFF;
-                                r_mask_ = 0xFF;
-                                a_shift_ = 0;
-                                b_shift_ = 16;
-                                g_shift_ = 8;
-                                r_shift_ = 0;
-                                a_width_ = 0;
-                                b_width_ = 8;
-                                g_width_ = 8;
-                                r_width_ = 8;
+                                bitmask_.reset(0xFF << 16, 0xFF << 8, 0xFF);
                                 break;
                         case 32:
-                                a_mask_ = 0xFF;
-                                b_mask_ = 0xFF;
-                                g_mask_ = 0xFF;
-                                r_mask_ = 0xFF;
-                                a_shift_ = 24;
-                                b_shift_ = 16;
-                                g_shift_ = 8;
-                                r_shift_ = 0;
-                                a_width_ = 8;
-                                b_width_ = 8;
-                                g_width_ = 8;
-                                r_width_ = 8;
+                                bitmask_.reset(0xFF << 16, 0xFF << 8, 0xFF);
                                 break;
                         default:
-                                a_mask_ = 0x0;
-                                b_mask_ = 0x0;
-                                g_mask_ = 0x0;
-                                r_mask_ = 0x0;
-                                a_shift_ = 0;
-                                b_shift_ = 0;
-                                g_shift_ = 0;
-                                r_shift_ = 0;
-                                a_width_ = 0;
-                                b_width_ = 0;
-                                g_width_ = 0;
-                                r_width_ = 0;
+                                bitmask_.reset();
                                 break;
                         }
                 }
@@ -1177,7 +1189,7 @@ private:
                         for (int y = 0; y < height(); ++y) {
                                 for (int x = 0; x < width(); ++x) {
                                         const uint32_t raw = imageData_.get32(x, y);
-                                        const Color32 col = rawToColor32(raw);
+                                        const Color32 col = bitmask_.rawToColor(raw);
                                         if (col.a() != 0) {
                                                 has_alpha_ = true;
                                                 break;
