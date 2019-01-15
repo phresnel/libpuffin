@@ -490,24 +490,8 @@ struct BitmapRowData {
                                 static_cast<uint32_t>(chunk)
                         );
                         chunks_.push_back(flipped);
-
-                        // TODO: Shift up the values to 0..255 here already.
                 }
 
-                // Round up to multiple of 4.
-                // Example:
-                //   2 chunks, 3 bytes each -> 6 bytes read
-                //   Need to round 6 to 8 (=2*4).
-                //
-                //   Attempt 1)   4*(6/4) = 4  -> no.
-                //   Attempt 2)   4*((6+3)/4) = 8 -> maybe.
-                //   round(x)_m = m*((x+m-1)/m)
-                //
-                //   Tests:
-                //       round(7)_4 = 4*((7+3)/4) = 8
-                //       round(8)_4 = 4*((8+3)/4) = 8
-                //       round(9)_4 = 4*((9+3)/4) = 12
-                // TODO: Make a reusable function of round().
                 const std::ostream::pos_type
                         endPos = f.tellg(),
                         bytes_read = endPos - startPos,
